@@ -1,0 +1,4 @@
+iperf-3.21.tar.gz: OK
+iperf 3.21 (cJSON 1.7.15)
+Linux vm 6.18.44-fc-v37 #1 SMP PREEMPT_DYNAMIC @0 x86_64
+Optional features available: CPU affinity setting, IPv6 flow label, TCP congestion algorithm setting, sendfile / zerocopy, socket pacing, authentication, bind to device, support IPv4 don't fragment, POSIX threads, GSO/GRO support
