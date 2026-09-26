@@ -1,0 +1,540 @@
+{
+ "prometheus-client": {
+  "latest": "0.26.0",
+  "latest_uploaded": "2026-07-24T19:36:40.854254Z",
+  "requires_python": ">=3.9",
+  "python_classifiers": [
+   "3.9",
+   "3.10",
+   "3.11",
+   "3.12",
+   "3.13",
+   "3.14"
+  ],
+  "dev_status": [
+   "4 - Beta"
+  ],
+  "license": "Apache-2.0 AND BSD-2-Clause",
+  "summary": "Python client for the Prometheus monitoring system.",
+  "project_urls": {
+   "Documentation": "https://prometheus.github.io/client_python/",
+   "Homepage": "https://github.com/prometheus/client_python"
+  },
+  "first_release": [
+   "2015-02-09T22:53:50.336964Z",
+   "0.0.1"
+  ],
+  "last_8_releases": [
+   "0.22.0 (2025-05-16)",
+   "0.22.1 (2025-06-02)",
+   "0.23.0 (2025-09-11) YANKED",
+   "0.23.1 (2025-09-18)",
+   "0.24.0 (2026-01-12)",
+   "0.24.1 (2026-01-14)",
+   "0.25.0 (2026-04-09)",
+   "0.26.0 (2026-07-24)"
+  ]
+ },
+ "APScheduler": {
+  "latest": "3.11.3",
+  "latest_uploaded": "2026-06-28T19:39:20.982686Z",
+  "requires_python": ">=3.8",
+  "python_classifiers": [
+   "3.8",
+   "3.9",
+   "3.10",
+   "3.11",
+   "3.12",
+   "3.13",
+   "3.14"
+  ],
+  "dev_status": [
+   "5 - Production/Stable"
+  ],
+  "license": "MIT",
+  "summary": "In-process task scheduler with Cron-like capabilities",
+  "project_urls": {
+   "Changelog": "https://apscheduler.readthedocs.io/en/3.x/versionhistory.html",
+   "Documentation": "https://apscheduler.readthedocs.io/en/3.x/",
+   "Issue tracker": "https://github.com/agronholm/apscheduler/issues",
+   "Source code": "https://github.com/agronholm/apscheduler"
+  },
+  "first_release": [
+   "2009-08-01T22:58:22.730880Z",
+   "1.0"
+  ],
+  "last_8_releases": [
+   "4.0.0a3 (2023-10-01)",
+   "4.0.0a4 (2023-11-13)",
+   "4.0.0a5 (2024-05-15)",
+   "3.11.0 (2024-11-24)",
+   "4.0.0a6 (2025-04-27)",
+   "3.11.1 (2025-10-31)",
+   "3.11.2 (2025-12-22)",
+   "3.11.3 (2026-06-28)"
+  ]
+ },
+ "croniter": {
+  "latest": "6.2.4",
+  "latest_uploaded": "2026-07-10T09:52:58.425221Z",
+  "requires_python": ">=3.9",
+  "python_classifiers": [
+   "3.9",
+   "3.10",
+   "3.11",
+   "3.12",
+   "3.13"
+  ],
+  "dev_status": [
+   "4 - Beta"
+  ],
+  "license": "MIT",
+  "summary": "croniter provides iteration for datetime object with cron like format",
+  "project_urls": {
+   "Homepage": "https://github.com/pallets-eco/croniter"
+  },
+  "first_release": [
+   "2010-01-24T21:32:00.725650Z",
+   "0.1.1"
+  ],
+  "last_8_releases": [
+   "6.0.0 (2024-12-17)",
+   "6.1.0rc1 (2026-03-14)",
+   "6.1.0 (2026-03-14)",
+   "6.2.0 (2026-03-14)",
+   "6.2.1 (2026-03-15)",
+   "6.2.2 (2026-03-15)",
+   "6.2.3 (2026-07-02)",
+   "6.2.4 (2026-07-10)"
+  ]
+ },
+ "cronsim": {
+  "latest": "2.7",
+  "latest_uploaded": "2025-10-21T16:38:20.431690Z",
+  "requires_python": ">=3.10",
+  "python_classifiers": [],
+  "dev_status": [
+   "5 - Production/Stable"
+  ],
+  "license": "",
+  "summary": "Cron expression parser and evaluator",
+  "project_urls": {
+   "Changelog": "https://github.com/cuu508/cronsim/blob/main/CHANGELOG.md",
+   "Issues": "https://github.com/cuu508/cronsim/issues",
+   "Repository": "https://github.com/cuu508/cronsim.git"
+  },
+  "first_release": [
+   "2021-05-16T17:05:16.307073Z",
+   "0.1.1"
+  ],
+  "last_8_releases": [
+   "2.1 (2022-04-30)",
+   "2.2 (2022-09-22)",
+   "2.3 (2022-09-28)",
+   "2.4 (2023-04-26)",
+   "2.4.1 (2023-04-27)",
+   "2.5 (2023-07-01)",
+   "2.6 (2024-11-02)",
+   "2.7 (2025-10-21)"
+  ]
+ },
+ "aiohttp": {
+  "latest": "3.14.3",
+  "latest_uploaded": "2026-07-23T01:52:08.217234Z",
+  "requires_python": ">=3.10",
+  "python_classifiers": [
+   "3.10",
+   "3.11",
+   "3.12",
+   "3.13",
+   "3.14"
+  ],
+  "dev_status": [
+   "5 - Production/Stable"
+  ],
+  "license": "Apache-2.0 AND MIT",
+  "summary": "Async http client/server framework (asyncio)",
+  "project_urls": {
+   "CI: GitHub Actions": "https://github.com/aio-libs/aiohttp/actions?query=workflow%3ACI",
+   "Chat: Matrix": "https://matrix.to/#/#aio-libs:matrix.org",
+   "Chat: Matrix Space": "https://matrix.to/#/#aio-libs-space:matrix.org",
+   "Coverage: codecov": "https://codecov.io/github/aio-libs/aiohttp",
+   "Docs: Changelog": "https://docs.aiohttp.org/en/stable/changes.html",
+   "Docs: RTD": "https://docs.aiohttp.org",
+   "GitHub: issues": "https://github.com/aio-libs/aiohttp/issues",
+   "GitHub: repo": "https://github.com/aio-libs/aiohttp",
+   "Homepage": "https://github.com/aio-libs/aiohttp"
+  },
+  "first_release": [
+   "2013-10-25T18:17:03.912408Z",
+   "0.1"
+  ],
+  "last_8_releases": [
+   "3.13.2 (2025-10-28)",
+   "3.13.3 (2026-01-03)",
+   "3.13.4 (2026-03-28)",
+   "3.13.5 (2026-03-31)",
+   "3.14.0 (2026-06-01)",
+   "3.14.1 (2026-06-07)",
+   "3.14.2 (2026-07-20)",
+   "3.14.3 (2026-07-23)"
+  ]
+ },
+ "httpx": {
+  "latest": "0.28.1",
+  "latest_uploaded": "2024-12-06T15:37:21.509172Z",
+  "requires_python": ">=3.8",
+  "python_classifiers": [
+   "3.8",
+   "3.9",
+   "3.10",
+   "3.11",
+   "3.12"
+  ],
+  "dev_status": [
+   "4 - Beta"
+  ],
+  "license": "BSD-3-Clause",
+  "summary": "The next generation HTTP client.",
+  "project_urls": {
+   "Changelog": "https://github.com/encode/httpx/blob/master/CHANGELOG.md",
+   "Documentation": "https://www.python-httpx.org",
+   "Homepage": "https://github.com/encode/httpx",
+   "Source": "https://github.com/encode/httpx"
+  },
+  "first_release": [
+   "2019-07-19T14:23:35.015278Z",
+   "0.6.7"
+  ],
+  "last_8_releases": [
+   "0.28.0 (2024-11-28)",
+   "0.28.1 (2024-12-06)",
+   "1.0.dev1 (2025-07-02)",
+   "1.0.dev2 (2025-08-04)",
+   "1.0.dev3 (2025-09-15)",
+   "1.0.dev4 (2026-08-19)",
+   "1.0.dev5 (2026-08-21)",
+   "1.0.dev6 (2026-08-31)"
+  ]
+ },
+ "uvloop": {
+  "latest": "0.22.1",
+  "latest_uploaded": "2025-10-16T22:16:11.430849Z",
+  "requires_python": ">=3.8.1",
+  "python_classifiers": [
+   "3.8",
+   "3.9",
+   "3.10",
+   "3.11",
+   "3.12",
+   "3.13"
+  ],
+  "dev_status": [
+   "5 - Production/Stable"
+  ],
+  "license": "MIT License",
+  "summary": "Fast implementation of asyncio event loop on top of libuv",
+  "project_urls": {
+   "github": "https://github.com/MagicStack/uvloop"
+  },
+  "first_release": [
+   "2016-04-12T13:45:29.770173Z",
+   "0.4.1"
+  ],
+  "last_8_releases": [
+   "0.16.0 (2021-08-10)",
+   "0.17.0 (2022-09-14)",
+   "0.18.0 (2023-10-13)",
+   "0.19.0 (2023-10-22)",
+   "0.20.0 (2024-08-15)",
+   "0.21.0b1 (2024-09-03)",
+   "0.21.0 (2024-10-14)",
+   "0.22.1 (2025-10-16)"
+  ]
+ },
+ "speedtest-cli": {
+  "latest": "2.1.3",
+  "latest_uploaded": "2021-04-08T13:51:32.028222Z",
+  "requires_python": "",
+  "python_classifiers": [
+   "3.1",
+   "3.2",
+   "3.3",
+   "3.4",
+   "3.5",
+   "3.6",
+   "3.7"
+  ],
+  "dev_status": [
+   "5 - Production/Stable"
+  ],
+  "license": "Apache License, Version 2.0",
+  "summary": "Command line interface for testing internet bandwidth using speedtest.net",
+  "project_urls": {
+   "Homepage": "https://github.com/sivel/speedtest-cli"
+  },
+  "first_release": [
+   "2013-07-31T02:53:14.899229Z",
+   "0.2"
+  ],
+  "last_8_releases": [
+   "1.0.7 (2017-10-16)",
+   "2.0.0 (2018-02-09)",
+   "2.0.1 (2018-05-23)",
+   "2.0.2 (2018-05-24)",
+   "2.1.0 (2019-03-11)",
+   "2.1.1 (2019-03-12)",
+   "2.1.2 (2019-08-22)",
+   "2.1.3 (2021-04-08)"
+  ]
+ },
+ "iperf3": {
+  "latest": "0.1.11",
+  "latest_uploaded": "2019-04-13T07:54:02.119271Z",
+  "requires_python": "",
+  "python_classifiers": [
+   "3.3",
+   "3.4",
+   "3.5"
+  ],
+  "dev_status": [
+   "4 - Beta"
+  ],
+  "license": "MIT",
+  "summary": "Python wrapper around iperf3",
+  "project_urls": {
+   "Homepage": "https://github.com/thiezn/iperf3-python"
+  },
+  "first_release": [
+   "2016-08-18T13:53:02.554016Z",
+   "0.0.1"
+  ],
+  "last_8_releases": [
+   "0.1.4 (2017-05-15)",
+   "0.1.5 (2017-05-22)",
+   "0.1.6 (2017-06-11)",
+   "0.1.7 (2017-08-02)",
+   "0.1.8 (2018-01-24)",
+   "0.1.9 (2018-02-22)",
+   "0.1.10 (2018-03-27)",
+   "0.1.11 (2019-04-13)"
+  ]
+ },
+ "pydantic-settings": {
+  "latest": "2.15.0",
+  "latest_uploaded": "2026-08-07T09:24:55.839145Z",
+  "requires_python": ">=3.10",
+  "python_classifiers": [
+   "3.10",
+   "3.11",
+   "3.12",
+   "3.13",
+   "3.14"
+  ],
+  "dev_status": [
+   "5 - Production/Stable"
+  ],
+  "license": "MIT",
+  "summary": "Settings management using Pydantic",
+  "project_urls": {
+   "Changelog": "https://github.com/pydantic/pydantic-settings/releases",
+   "Documentation": "https://docs.pydantic.dev/dev-v2/concepts/pydantic_settings/",
+   "Funding": "https://github.com/sponsors/samuelcolvin",
+   "Homepage": "https://github.com/pydantic/pydantic-settings",
+   "Source": "https://github.com/pydantic/pydantic-settings"
+  },
+  "first_release": [
+   "2019-08-19T16:44:41.597281Z",
+   "0.1.0a1"
+  ],
+  "last_8_releases": [
+   "2.11.0 (2025-09-24)",
+   "2.12.0 (2025-11-10)",
+   "2.13.0 (2026-02-15)",
+   "2.13.1 (2026-02-19)",
+   "2.14.0 (2026-04-20)",
+   "2.14.1 (2026-05-08)",
+   "2.14.2 (2026-06-19)",
+   "2.15.0 (2026-08-07)"
+  ]
+ },
+ "fastapi": {
+  "latest": "0.141.1",
+  "latest_uploaded": "2026-07-29T17:18:04.364385Z",
+  "requires_python": ">=3.10",
+  "python_classifiers": [
+   "3.10",
+   "3.11",
+   "3.12",
+   "3.13",
+   "3.14"
+  ],
+  "dev_status": [
+   "4 - Beta"
+  ],
+  "license": "MIT",
+  "summary": "FastAPI framework, high performance, easy to learn, fast to code, ready for production",
+  "project_urls": {
+   "Changelog": "https://fastapi.tiangolo.com/release-notes/",
+   "Documentation": "https://fastapi.tiangolo.com/",
+   "Homepage": "https://github.com/fastapi/fastapi",
+   "Issues": "https://github.com/fastapi/fastapi/issues",
+   "Repository": "https://github.com/fastapi/fastapi"
+  },
+  "first_release": [
+   "2018-12-08T08:14:13.103167Z",
+   "0.1.0"
+  ],
+  "last_8_releases": [
+   "0.140.8 (2026-07-28)",
+   "0.140.9 (2026-07-28)",
+   "0.140.10 (2026-07-28)",
+   "0.140.11 (2026-07-28)",
+   "0.140.12 (2026-07-28)",
+   "0.140.13 (2026-07-28)",
+   "0.141.0 (2026-07-29)",
+   "0.141.1 (2026-07-29)"
+  ]
+ },
+ "uvicorn": {
+  "latest": "0.54.0",
+  "latest_uploaded": "2026-09-25T06:52:35.829563Z",
+  "requires_python": ">=3.10",
+  "python_classifiers": [
+   "3.10",
+   "3.11",
+   "3.12",
+   "3.13",
+   "3.14"
+  ],
+  "dev_status": [
+   "4 - Beta"
+  ],
+  "license": "BSD-3-Clause",
+  "summary": "The lightning-fast ASGI server.",
+  "project_urls": {
+   "Changelog": "https://uvicorn.dev/release-notes",
+   "Funding": "https://github.com/sponsors/Kludex",
+   "Homepage": "https://uvicorn.dev/",
+   "Source": "https://github.com/Kludex/uvicorn"
+  },
+  "first_release": [
+   "2017-06-05T11:32:15.069863Z",
+   "0.0.1"
+  ],
+  "last_8_releases": [
+   "0.51.0 (2026-07-08)",
+   "0.52.0 (2026-07-29)",
+   "0.52.1 (2026-08-01)",
+   "0.52.2 (2026-08-13)",
+   "0.52.3 (2026-08-13)",
+   "0.52.4 (2026-08-19)",
+   "0.53.0 (2026-09-14)",
+   "0.54.0 (2026-09-25)"
+  ]
+ },
+ "starlette": {
+  "latest": "1.7.0",
+  "latest_uploaded": "2026-09-23T07:30:24.567239Z",
+  "requires_python": ">=3.10",
+  "python_classifiers": [
+   "3.10",
+   "3.11",
+   "3.12",
+   "3.13",
+   "3.14",
+   "3.15"
+  ],
+  "dev_status": [
+   "3 - Alpha"
+  ],
+  "license": "BSD-3-Clause",
+  "summary": "The little ASGI library that shines.",
+  "project_urls": {
+   "Changelog": "https://starlette.dev/release-notes/",
+   "Documentation": "https://starlette.dev/",
+   "Funding": "https://github.com/sponsors/Kludex",
+   "Homepage": "https://github.com/Kludex/starlette",
+   "Source": "https://github.com/Kludex/starlette"
+  },
+  "first_release": [
+   "2018-06-25T13:13:07.859399Z",
+   "0.1.0"
+  ],
+  "last_8_releases": [
+   "1.3.0 (2026-06-11)",
+   "1.3.1 (2026-06-12)",
+   "1.4.0 (2026-08-05)",
+   "1.4.1 (2026-08-05)",
+   "1.5.0 (2026-08-08)",
+   "1.5.1 (2026-08-08)",
+   "1.6.0 (2026-08-08)",
+   "1.7.0 (2026-09-23)"
+  ]
+ },
+ "ndt7": {
+  "error": "HTTP Error 404: Not Found"
+ },
+ "ndt7-client": {
+  "error": "HTTP Error 404: Not Found"
+ },
+ "pyndt7": {
+  "error": "HTTP Error 404: Not Found"
+ },
+ "ndt7-python": {
+  "error": "HTTP Error 404: Not Found"
+ },
+ "python-ndt7": {
+  "error": "HTTP Error 404: Not Found"
+ },
+ "speedtest": {
+  "latest": "0.0.1",
+  "latest_uploaded": "2020-10-30T17:15:41.339174Z",
+  "requires_python": ">=3.7",
+  "python_classifiers": [],
+  "dev_status": [],
+  "license": "",
+  "summary": "Speedtest",
+  "project_urls": null,
+  "first_release": [
+   "2020-10-30T17:15:41.339174Z",
+   "0.0.1"
+  ],
+  "last_8_releases": [
+   "0.0.1 (2020-10-30)"
+  ]
+ },
+ "ookla-speedtest": {
+  "error": "HTTP Error 404: Not Found"
+ },
+ "cloudflarepycli": {
+  "latest": "2.0.2",
+  "latest_uploaded": "2024-06-25T12:44:27.449467Z",
+  "requires_python": ">=3.8",
+  "python_classifiers": [],
+  "dev_status": [],
+  "license": "GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007  Copyrigh",
+  "summary": "Python CLI and utiltiies for retrieving network performance statistics.",
+  "project_urls": {
+   "Homepage": "https://github.com/martinbrose/cloudflarepycli",
+   "Issues": "https://github.com/martinbrose/cloudflarepycli/issues"
+  },
+  "first_release": [
+   "2021-11-10T22:58:19.249116Z",
+   "0.50.5"
+  ],
+  "last_8_releases": [
+   "1.0.3 (2022-01-01)",
+   "1.6.0 (2022-01-07)",
+   "1.7.0 (2022-10-14)",
+   "1.8 (2023-07-02)",
+   "1.8.1 (2023-09-22)",
+   "1.8.2 (2024-06-19)",
+   "2.0.1 (2024-06-21)",
+   "2.0.2 (2024-06-25)"
+  ]
+ },
+ "cfspeedtest": {
+  "error": "HTTP Error 404: Not Found"
+ }
+}

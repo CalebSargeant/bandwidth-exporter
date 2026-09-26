@@ -1,0 +1,18 @@
+{"scenario": "py blocking sendall/recv_into P1", "docker_cpus": 0.5, "run": 1, "gbps": 7.251694109352155}
+{"scenario": "py blocking sendall/recv_into P1", "docker_cpus": 0.5, "run": 2, "gbps": 7.6599796316416215}
+{"scenario": "py blocking sendall/recv_into P1", "docker_cpus": 0.5, "run": 3, "gbps": 7.67771427963384}
+{"scenario": "HTTP down srv=aiohttp cli=aiohttp", "docker_cpus": 0.5, "run": 1, "gbps": 6.195832747504619}
+{"scenario": "HTTP down srv=aiohttp cli=aiohttp", "docker_cpus": 0.5, "run": 2, "gbps": 5.210559825388405}
+{"scenario": "HTTP down srv=aiohttp cli=aiohttp", "docker_cpus": 0.5, "run": 3, "gbps": 4.8896780447623565}
+{"scenario": "py blocking sendall/recv_into P1", "docker_cpus": 1.0, "run": 1, "gbps": 14.479169121807846}
+{"scenario": "py blocking sendall/recv_into P1", "docker_cpus": 1.0, "run": 2, "gbps": 15.07409363027395}
+{"scenario": "py blocking sendall/recv_into P1", "docker_cpus": 1.0, "run": 3, "gbps": 14.501162708584276}
+{"scenario": "HTTP down srv=aiohttp cli=aiohttp", "docker_cpus": 1.0, "run": 1, "gbps": 12.995737376880873}
+{"scenario": "HTTP down srv=aiohttp cli=aiohttp", "docker_cpus": 1.0, "run": 2, "gbps": 12.806063693484328}
+{"scenario": "HTTP down srv=aiohttp cli=aiohttp", "docker_cpus": 1.0, "run": 3, "gbps": 12.7986853428408}
+{"scenario": "iperf3-3.21 TCP P1", "docker_cpus": 0.5, "run": 1, "gbps": 6.677717127739392}
+{"scenario": "iperf3-3.21 TCP P1", "docker_cpus": 0.5, "run": 2, "gbps": 6.670991042874344}
+{"scenario": "iperf3-3.21 TCP P1", "docker_cpus": 0.5, "run": 3, "gbps": 6.57259544416475}
+{"scenario": "iperf3-3.21 TCP P1", "docker_cpus": 1.0, "run": 1, "gbps": 12.84967451349774}
+{"scenario": "iperf3-3.21 TCP P1", "docker_cpus": 1.0, "run": 2, "gbps": 13.360166038813047}
+{"scenario": "iperf3-3.21 TCP P1", "docker_cpus": 1.0, "run": 3, "gbps": 13.828531259676785}
