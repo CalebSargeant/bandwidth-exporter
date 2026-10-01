@@ -117,3 +117,47 @@ tests:
             exp_annotations:
               summary: bandwidth-exporter is not being scraped
               description: Prometheus cannot scrape t-bandwidth-exporter in bw; no bandwidth results are being recorded.
+
+  - name: east/west asymmetry
+    interval: 5m
+    input_series:
+      - series: 'bandwidth_download_bytes_per_second{namespace="bw", job="t-bandwidth-exporter", instance="i", node="n1", test="mesh", kind="east_west", peer="n2"}'
+        values: "100000000x100"
+      - series: 'bandwidth_upload_bytes_per_second{namespace="bw", job="t-bandwidth-exporter", instance="i", node="n1", test="mesh", kind="east_west", peer="n2"}'
+        values: "20000000x100"
+    alert_rule_test:
+      - eval_time: 7h
+        alertname: BandwidthEastWestAsymmetric
+        exp_alerts:
+          - exp_labels:
+              severity: info
+              namespace: bw
+              job: t-bandwidth-exporter
+              instance: i
+              node: n1
+              test: mesh
+              kind: east_west
+              peer: n2
+            exp_annotations:
+              summary: Upload and download between n1 and n2 differ more than twofold
+              description: A duplex mismatch, a policer or a busy NIC on one side are the usual causes.
+
+  - name: a responder refusing bad signatures
+    interval: 5m
+    input_series:
+      - series: 'bandwidth_responder_rejected_sessions_total{namespace="bw", job="t-bandwidth-exporter", instance="i", reason="auth"}'
+        values: "0+5x24"
+      - series: 'bandwidth_responder_rejected_sessions_total{namespace="bw", job="t-bandwidth-exporter", instance="i", reason="busy"}'
+        values: "0+50x24"
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: BandwidthResponderRefusingSignatures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: bw
+              job: t-bandwidth-exporter
+              instance: i
+            exp_annotations:
+              summary: A bandwidth responder refused more than 10 unsigned or replayed requests in an hour
+              description: Either a peer has the wrong key, or something unauthorised is probing the control port.

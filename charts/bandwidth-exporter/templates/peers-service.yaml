@@ -1,0 +1,20 @@
+{{- if .Values.responder.enabled }}
+# Headless: DNS returns one address per ready pod, which is how east/west discovery finds peers
+# without any Kubernetes API access. Never a load-balanced ClusterIP in front of the data ports.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bandwidth-exporter.peersName" . }}
+  labels:
+    {{- include "bandwidth-exporter.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: false
+  selector:
+    {{- include "bandwidth-exporter.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: control
+      port: {{ .Values.responder.port }}
+      targetPort: control
+      protocol: TCP
+{{- end }}

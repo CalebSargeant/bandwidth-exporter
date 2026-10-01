@@ -112,7 +112,7 @@ spec:
             severity: {{ $severity }}
           annotations:
             summary: Over 80% of the bandwidth test data budget is used
-            description: When it runs out, tests fall back to latency-only probing or are skipped.
+            description: When it runs out, tests are skipped until the period resets.
         - alert: BandwidthPublicIpChanged
           expr: changes(bandwidth_public_ip_hash{ {{- $sel }}}[6h]) > 0
           labels:
@@ -120,6 +120,33 @@ spec:
           annotations:
             summary: The public egress address seen by {{ "{{" }} $labels.test {{ "}}" }} changed
             description: Results before and after a change of egress address may not be comparable.
+        # East/west asymmetry beyond a factor of 2 in either direction.
+        - alert: BandwidthEastWestAsymmetric
+          expr: abs(log2(test:bandwidth_upload_per_download:ratio{ {{- $sel }}})) > 1
+          for: 6h
+          labels:
+            severity: info
+          annotations:
+            summary: Upload and download between {{ "{{" }} $labels.node {{ "}}" }} and {{ "{{" }} $labels.peer {{ "}}" }} differ more than twofold
+            description: A duplex mismatch, a policer or a busy NIC on one side are the usual causes.
+        # Someone without the peer key is knocking on a responder.
+        - alert: BandwidthResponderRefusingSignatures
+          expr: |
+            sum by (namespace, job, instance) (
+              increase(bandwidth_responder_rejected_sessions_total{ {{- $sel }}, reason=~"auth|replay"}[1h])
+            ) > 10
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: A bandwidth responder refused more than 10 unsigned or replayed requests in an hour
+            description: Either a peer has the wrong key, or something unauthorised is probing the control port.
+    - name: bandwidth-exporter.recording
+      rules:
+        # East/west symmetry as measured by one tester (1.0 means symmetric).
+        - record: test:bandwidth_upload_per_download:ratio
+          expr: |
+            bandwidth_upload_bytes_per_second{ {{- $sel }}, kind="east_west"}
+              / bandwidth_download_bytes_per_second{ {{- $sel }}, kind="east_west"}
     {{- with .Values.prometheusRule.compatDashboard13665 }}
     {{- if .enabled }}
     {{- if not .test }}

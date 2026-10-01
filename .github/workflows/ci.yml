@@ -87,13 +87,28 @@ jobs:
             --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
             --set-json 'config.north_south=[{"name":"cloudflare","backend":"cloudflare"}]' \
             | kubeconform -strict -summary "${schemas[@]}"
+          # East/west: a DaemonSet mesh with the responder.
+          helm template t "$chart" --namespace bw \
+            --set workload.kind=DaemonSet \
+            --set responder.enabled=true \
+            --set mesh.enabled=true \
+            --set peerKeys.existingSecret=peers \
+            --set networkPolicy.enabled=true \
+            --set serviceMonitor.enabled=true \
+            --set northSouthOn=node-a \
+            --set-json 'config.north_south=[{"name":"cloudflare","backend":"cloudflare"}]' \
+            | kubeconform -strict -summary "${schemas[@]}"
           # Settings the chart must refuse. (`! cmd` would never fail a `set -e` script.)
-          if helm template t "$chart" --set workload.kind=DaemonSet >/dev/null 2>&1; then
-            echo "a DaemonSet workload rendered" >&2; exit 1
-          fi
-          if helm template t "$chart" --set-json 'config.trigger={"enabled":true}' >/dev/null 2>&1; then
-            echo "an open trigger rendered" >&2; exit 1
-          fi
+          refuse() {
+            if helm template t "$chart" "$@" >/dev/null 2>&1; then
+              echo "rendered, but should not have: $*" >&2; exit 1
+            fi
+          }
+          refuse --set workload.kind=ReplicaSet
+          refuse --set-json 'config.trigger={"enabled":true}'
+          refuse --set workload.kind=DaemonSet --set persistence.enabled=true
+          refuse --set mesh.enabled=true --set peerKeys.existingSecret=peers
+          refuse --set responder.enabled=true
       - name: Alert rules (promtool)
         run: |
           set -euo pipefail

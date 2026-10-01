@@ -17,10 +17,13 @@ spec:
       path: /metrics
       interval: {{ .Values.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
-      {{- with .Values.serviceMonitor.relabelings }}
       relabelings:
+        # The source of an east/west result: the node the testing pod runs on.
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: node
+        {{- with .Values.serviceMonitor.relabelings }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       {{- with .Values.serviceMonitor.metricRelabelings }}
       metricRelabelings:
         {{- toYaml . | nindent 8 }}
