@@ -1342,7 +1342,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "8 * max by (node, test, peer) (bandwidth_download_bytes_per_second{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\"})",
+          "expr": "8 * max by (node, zone, test, peer, peer_zone) (bandwidth_download_bytes_per_second{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\"})",
           "legendFormat": "",
           "refId": "A",
           "range": false,
@@ -1355,7 +1355,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "8 * max by (node, test, peer) (bandwidth_upload_bytes_per_second{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\"})",
+          "expr": "8 * max by (node, zone, test, peer, peer_zone) (bandwidth_upload_bytes_per_second{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\"})",
           "legendFormat": "",
           "refId": "B",
           "range": false,
@@ -1368,7 +1368,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (node, test, peer) (bandwidth_idle_latency_seconds{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\"})",
+          "expr": "max by (node, zone, test, peer, peer_zone) (bandwidth_idle_latency_seconds{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\"})",
           "legendFormat": "",
           "refId": "C",
           "range": false,
@@ -1381,7 +1381,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "1000 * max by (node, test, peer) (bandwidth_last_success_timestamp_seconds{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\"} > 0)",
+          "expr": "1000 * max by (node, zone, test, peer, peer_zone) (bandwidth_last_success_timestamp_seconds{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\"} > 0)",
           "legendFormat": "",
           "refId": "D",
           "range": false,
@@ -1403,16 +1403,20 @@
             },
             "indexByName": {
               "node": 0,
-              "peer": 1,
-              "test": 2,
-              "Value #A": 3,
-              "Value #B": 4,
-              "Value #C": 5,
-              "Value #D": 6
+              "zone": 1,
+              "peer": 2,
+              "peer_zone": 3,
+              "test": 4,
+              "Value #A": 5,
+              "Value #B": 6,
+              "Value #C": 7,
+              "Value #D": 8
             },
             "renameByName": {
               "node": "Tester",
+              "zone": "Zone",
               "peer": "Peer",
+              "peer_zone": "Peer zone",
               "test": "Test",
               "Value #A": "Download",
               "Value #B": "Upload",
@@ -1572,7 +1576,7 @@
     {
       "id": 21,
       "type": "row",
-      "title": "Exporter",
+      "title": "Regions",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -1584,6 +1588,318 @@
     },
     {
       "id": 22,
+      "type": "table",
+      "title": "Zone to zone: latest results",
+      "description": "East/west pairs grouped by the tester's zone and the peer's (the exporter's `zones` setting). The slowest pair and the highest idle latency between two zones, so one bad path is not averaged away.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 24,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^(Download|Upload)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bps"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-RdYlGr"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Idle latency (highest)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 4
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Download (slowest pair)",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "8 * min by (zone, peer_zone) (bandwidth_download_bytes_per_second{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\", zone!=\"\", peer_zone!=\"\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "8 * min by (zone, peer_zone) (bandwidth_upload_bytes_per_second{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\", zone!=\"\", peer_zone!=\"\"})",
+          "legendFormat": "",
+          "refId": "B",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (zone, peer_zone) (bandwidth_idle_latency_seconds{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\", zone!=\"\", peer_zone!=\"\"})",
+          "legendFormat": "",
+          "refId": "C",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count by (zone, peer_zone) (bandwidth_download_bytes_per_second{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\", zone!=\"\", peer_zone!=\"\"})",
+          "legendFormat": "",
+          "refId": "D",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "zone": 0,
+              "peer_zone": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5
+            },
+            "renameByName": {
+              "zone": "From zone",
+              "peer_zone": "To zone",
+              "Value #A": "Download (slowest pair)",
+              "Value #B": "Upload (slowest pair)",
+              "Value #C": "Idle latency (highest)",
+              "Value #D": "Pairs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Zone to zone download",
+      "description": "The slowest pair between each two zones, over time.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 65,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "8 * min by (zone, peer_zone) (bandwidth_download_bytes_per_second{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\", zone!=\"\", peer_zone!=\"\"})",
+          "legendFormat": "{{zone}} \u2192 {{peer_zone}}",
+          "refId": "A",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Zone to zone idle latency",
+      "description": "TCP connect time before each test, the highest pair between each two zones.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 65,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "gradientMode": "none",
+            "barAlignment": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (zone, peer_zone) (bandwidth_idle_latency_seconds{cluster=~\"$cluster\", test=~\"$test\", kind=\"east_west\", zone!=\"\", peer_zone!=\"\"})",
+          "legendFormat": "{{zone}} \u2192 {{peer_zone}}",
+          "refId": "A",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "row",
+      "title": "Exporter",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 73,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 26,
       "type": "stat",
       "title": "Test running",
       "description": "1 while the single test worker is busy.",
@@ -1593,7 +1909,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 74,
         "w": 6,
         "h": 4
       },
@@ -1662,7 +1978,7 @@
       ]
     },
     {
-      "id": 23,
+      "id": 27,
       "type": "stat",
       "title": "Queued runs",
       "description": "Runs waiting for the worker. Tests never overlap.",
@@ -1672,7 +1988,7 @@
       },
       "gridPos": {
         "x": 6,
-        "y": 59,
+        "y": 74,
         "w": 6,
         "h": 4
       },
@@ -1727,7 +2043,7 @@
       ]
     },
     {
-      "id": 24,
+      "id": 28,
       "type": "stat",
       "title": "Last run CPU-bound",
       "description": "Yes means CPU, not the network, may have limited the last result.",
@@ -1737,7 +2053,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 59,
+        "y": 74,
         "w": 6,
         "h": 4
       },
@@ -1808,7 +2124,7 @@
       ]
     },
     {
-      "id": 25,
+      "id": 29,
       "type": "stat",
       "title": "CPU quota",
       "description": "The container's CFS quota in cores. Unlimited is what the chart sets, on purpose.",
@@ -1818,7 +2134,7 @@
       },
       "gridPos": {
         "x": 18,
-        "y": 59,
+        "y": 74,
         "w": 6,
         "h": 4
       },

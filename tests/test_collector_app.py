@@ -30,9 +30,10 @@ def samples(text):
 
 
 def lbl(**kwargs):
-    base = {"test": "cf", "kind": "north_south", "peer": ""}
+    base = {"test": "cf", "kind": "north_south", "peer": "", "zone": "", "peer_zone": ""}
     base.update(kwargs)
-    return tuple(sorted((k, v) for k, v in base.items() if v != "" or k == "peer"))
+    kept = {"peer", "zone", "peer_zone"}
+    return tuple(sorted((k, v) for k, v in base.items() if v != "" or k in kept))
 
 
 def succeeded_state():

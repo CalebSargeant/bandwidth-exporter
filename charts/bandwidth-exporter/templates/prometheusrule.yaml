@@ -129,6 +129,15 @@ spec:
           annotations:
             summary: Upload and download between {{ "{{" }} $labels.node {{ "}}" }} and {{ "{{" }} $labels.peer {{ "}}" }} differ more than twofold
             description: A duplex mismatch, a policer or a busy NIC on one side are the usual causes.
+        # A configured test is not running, e.g. its peer key is not there.
+        - alert: BandwidthTestDisabled
+          expr: bandwidth_test_disabled{ {{- $sel }}} == 1
+          for: 15m
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: Bandwidth test {{ "{{" }} $labels.test {{ "}}" }} is disabled ({{ "{{" }} $labels.reason {{ "}}" }})
+            description: missing_key means its auth.key_env is unset or under 16 characters; set it and restart the exporter.
         # Someone without the peer key is knocking on a responder.
         - alert: BandwidthResponderRefusingSignatures
           expr: |

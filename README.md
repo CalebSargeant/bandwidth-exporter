@@ -1,16 +1,16 @@
 # bandwidth-exporter
 
 A Prometheus exporter that measures bandwidth on its own randomised schedule and serves the last
-results from a cache: north/south (a site to the Internet) and east/west (between instances you
-run: nodes, clusters, sites). A scrape never starts a test, so an HA pair of Prometheus servers
+results from a cache: north/south (a site to the Internet), east/west (between instances you
+run: nodes, clusters, sites) and, with zones, region to region. A scrape never starts a test, so an HA pair of Prometheus servers
 does not double the tests and `scrape_timeout` is irrelevant. Business hours can be kept free of
 tests, because a test saturates the link it measures.
 
-Status: 0.2. It implements phases 0 and 1 of the [design](docs/research/bandwidth-exporter-design.md)
+Status: 0.3. It implements phases 0 and 1 of the [design](docs/research/bandwidth-exporter-design.md)
 plus the Cloudflare backend: one queue and one worker, truncated-exponential schedules, business
 hours, a persisted state file with catch-up, a data budget, the metric schema, the responder with
-signed slots, east/west discovery and peer selection, the Helm chart (Deployment, StatefulSet or
-DaemonSet), alert rules and a Grafana dashboard.
+signed slots, east/west discovery and peer selection, zones, the Helm chart (Deployment,
+StatefulSet or DaemonSet), alert rules and a Grafana dashboard.
 
 ## Backends
 
@@ -108,7 +108,27 @@ keeps a mesh's pairs at N x k instead of N x (N-1).
 
 Keys: one shared key for every peer, or a JSON object of peer id to key on the responder side.
 They come from environment variables (`BWEXP_PEER_KEY`, `BWEXP_PEER_KEYS`), in Kubernetes from a
-Secret.
+Secret. Each east/west test can sign with its own variable (`auth: {key_env: ...}`), so tests
+to instances you share a key with elsewhere need not use the cluster's own key. A test whose
+key is missing is disabled (`bandwidth_test_disabled{reason="missing_key"}`) and the others
+keep running; a responder without its keys refuses to start.
+
+## Zones: region to region
+
+`zones` maps peer ids to where they run (a site, region or datacenter). Every per-test series
+then carries `zone`, the tester's zone, and `peer_zone`, the peer's, so a mesh that spans two
+sites reads site to site without a second deployment, and the dashboard's Regions row groups
+the pairs zone to zone. Peers missing from the map get empty labels.
+
+```yaml
+zones:
+  worker-0: amsterdam
+  worker-1: rotterdam
+  worker-2: rotterdam
+```
+
+Together with north/south and east/west that gives three views of a network: to the Internet,
+between instances, and between sites.
 
 ## Configuration
 
@@ -119,8 +139,8 @@ validates a file, prints the plan and lists missing secrets.
 
 Base units throughout. Result gauges hold the most recent successful run and survive later
 failures, so a failed test never shows up as a zero; `bandwidth_last_test_success` says whether the
-latest attempt worked. Labels are `test`, `kind` and `peer` (empty for north/south); context lives
-in `bandwidth_test_info`. The chart's ServiceMonitor adds `node`, the tester's node, so an
+latest attempt worked. Labels are `test`, `kind`, `peer` (empty for north/south), `zone` and
+`peer_zone` (empty without `zones`); context lives in `bandwidth_test_info`. The chart's ServiceMonitor adds `node`, the tester's node, so an
 east/west result reads node to peer.
 
 | Metric | Type | Meaning |
@@ -142,6 +162,7 @@ east/west result reads node to peer.
 | `bandwidth_data_budget_bytes`, `bandwidth_budget_period_transferred_bytes` | gauge | Budget and use this period |
 | `bandwidth_responder_sessions_total`, `bandwidth_responder_rejected_sessions_total{reason}` | counter | Slots granted; refusals (auth, replay, busy, business_hours, ...) |
 | `bandwidth_responder_sent_bytes_total`, `bandwidth_responder_received_bytes_total`, `bandwidth_responder_busy` | | Responder load (built-in engine) |
+| `bandwidth_test_disabled{test, reason}` | gauge | A configured test that is not running (`missing_key`) |
 | `bandwidth_peer_info{peer_id}`, `bandwidth_cpu_quota_cores`, `bandwidth_on_demand_requests_total{result}`, `bandwidth_build_info` | | Process |
 
 Failure reasons: `timeout`, `connect`, `auth`, `peer_busy`, `protocol`, `tool_error`. Skip

@@ -346,7 +346,7 @@ async def test_peers_come_and_go(clock):
         await clock.advance(40)
         assert {call[0] for call in runner.calls} == {"mesh@b", "mesh@c"}
         state = sched.snapshot.get("mesh@b")
-        assert state.spec.labels == ("mesh", "east_west", "b")
+        assert state.spec.labels == ("mesh", "east_west", "b", "", "")
         # c leaves, b moves to a new address: its results stay.
         sched.set_peers(plan, [("b", "10.0.0.9:10057")])
         assert [s.spec.key for s in sched.snapshot.tests] == ["mesh@b"]

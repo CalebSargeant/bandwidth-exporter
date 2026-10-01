@@ -93,6 +93,9 @@ peerKeys:
   keyKey: key
   # Empty: the responder accepts the same shared key the agent signs with.
   keysKey: ""
+  # true: start without the Secret. East/west tests then stay disabled (bandwidth_test_disabled)
+  # while north/south tests run; a responder still refuses to start without its keys.
+  optional: false
 
 # An east/west test against the other pods of this release, found through the headless Service
 # the chart creates. Needs the responder and the peer key. Each instance tests `randomPeers`

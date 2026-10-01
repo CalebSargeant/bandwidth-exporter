@@ -12,6 +12,7 @@ import ipaddress
 import random
 import re
 import socket
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal
@@ -458,6 +459,9 @@ class Settings(BaseSettings):
     # With several instances (a DaemonSet), only the one with this peer id runs the
     # north/south tests: one tester per egress.
     north_south_on: str = ""
+    # Where each instance runs (a site, region or datacenter), by peer id. Results carry the
+    # tester's zone and the peer's, so east/west pairs can be read site to site.
+    zones: dict[str, str] = Field(default_factory=dict)
     business_hours: BusinessHoursConfig = Field(default_factory=BusinessHoursConfig)
     trigger: TriggerConfig = Field(default_factory=TriggerConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
@@ -494,6 +498,17 @@ class Settings(BaseSettings):
             return str(value).lower()
         return value
 
+    @field_validator("zones", mode="before")
+    @classmethod
+    def _zones(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        zones = {}
+        for peer, zone in value.items():
+            peer = _check_name(str(peer).lower(), "peer ids")
+            zones[peer] = _check_name(zone, "zone names")
+        return zones
+
     @model_validator(mode="after")
     def _consistency(self) -> Settings:
         seen: set[str] = set()
@@ -529,6 +544,10 @@ class Settings(BaseSettings):
         host = socket.gethostname().split(".")[0].lower()
         cleaned = re.sub(r"[^a-z0-9._-]", "-", host).strip("-._") or "localhost"
         return cleaned[:63]
+
+    @property
+    def own_zone(self) -> str:
+        return self.zones.get(self.own_peer_id, "")
 
     @property
     def hours(self) -> BusinessHours:
@@ -615,13 +634,16 @@ class TestSpec:
     # East/west only: who we are, and the env var with the key we sign requests with.
     self_id: str = ""
     key_env: str = ""
+    # From `zones`: where the tester runs, and (east/west) where the peer does.
+    zone: str = ""
+    peer_zone: str = ""
 
     # Never collected by pytest even though the name starts with "Test".
     __test__: ClassVar[bool] = False
 
     @property
-    def labels(self) -> tuple[str, str, str]:
-        return (self.name, self.kind, self.peer)
+    def labels(self) -> tuple[str, str, str, str, str]:
+        return (self.name, self.kind, self.peer, self.zone, self.peer_zone)
 
     @property
     def key(self) -> str:
@@ -688,13 +710,13 @@ def _resolved_common(test: _TestCommon, defaults: Defaults, backend: str) -> dic
     }
 
 
-def resolve_test(test: NorthSouthTest, defaults: Defaults) -> TestSpec:
+def resolve_test(test: NorthSouthTest, defaults: Defaults, zone: str = "") -> TestSpec:
     common = _resolved_common(test, defaults, test.backend)
     if test.backend == "cloudflare":
         target = common["options"]["base_url"].split("://", 1)[1].split("/", 1)[0]
     else:
         target = format_host_port(*parse_host_port(test.target or "", default_port=5201))
-    return TestSpec(kind="north_south", peer="", target=target, **common)
+    return TestSpec(kind="north_south", peer="", target=target, zone=zone, **common)
 
 
 @dataclass(frozen=True)
@@ -706,16 +728,25 @@ class EastWestPlan:
     discovery: DnsDiscovery | None
     random_peers: int | None
     max_peers: int
+    zones: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def name(self) -> str:
         return self.template.name
 
     def pair(self, peer_id: str, address: str) -> TestSpec:
-        return replace(self.template, peer=peer_id, target=address)
+        return replace(
+            self.template, peer=peer_id, target=address, peer_zone=self.zones.get(peer_id, "")
+        )
 
 
-def resolve_east_west(test: EastWestTest, defaults: Defaults, self_id: str) -> EastWestPlan:
+def resolve_east_west(
+    test: EastWestTest,
+    defaults: Defaults,
+    self_id: str,
+    zones: Mapping[str, str] | None = None,
+) -> EastWestPlan:
+    zones = zones or {}
     common = _resolved_common(test, defaults, test.backend)
     template = TestSpec(
         kind="east_west",
@@ -723,6 +754,7 @@ def resolve_east_west(test: EastWestTest, defaults: Defaults, self_id: str) -> E
         target="",
         self_id=self_id,
         key_env=test.auth.key_env,
+        zone=zones.get(self_id, ""),
         **common,
     )
     return EastWestPlan(
@@ -731,6 +763,7 @@ def resolve_east_west(test: EastWestTest, defaults: Defaults, self_id: str) -> E
         discovery=test.discovery,
         random_peers=test.topology.random_peers,
         max_peers=test.max_peers,
+        zones=zones,
     )
 
 
@@ -752,12 +785,17 @@ def enabled_tests(settings: Settings) -> list[TestSpec]:
     """North/south tests this instance runs."""
     if not settings.runs_north_south:
         return []
-    return [resolve_test(t, settings.defaults) for t in settings.north_south if t.enabled]
+    zone = settings.own_zone
+    return [resolve_test(t, settings.defaults, zone) for t in settings.north_south if t.enabled]
 
 
 def east_west_plans(settings: Settings) -> list[EastWestPlan]:
     me = settings.own_peer_id
-    return [resolve_east_west(t, settings.defaults, me) for t in settings.east_west if t.enabled]
+    return [
+        resolve_east_west(t, settings.defaults, me, settings.zones)
+        for t in settings.east_west
+        if t.enabled
+    ]
 
 
 def _format_validation_error(exc: ValidationError) -> str:

@@ -18,6 +18,11 @@ startup_jitter: 0s                       # ... plus a random share of this (set 
 network_mode: ""                         # recorded on bandwidth_test_info, e.g. pod or host
 peer_id: ""                              # this instance among its peers; the host name if unset
 
+# Where each instance runs, by peer id: results carry `zone` (the tester's) and `peer_zone`.
+zones: {}
+#   worker-0: amsterdam
+#   worker-1: rotterdam
+
 # No test starts inside these hours: a test saturates the link it measures. Random schedules
 # count only the time outside them, so runs spread over evenings, nights and weekends.
 business_hours:
