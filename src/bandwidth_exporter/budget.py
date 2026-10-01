@@ -1,8 +1,9 @@
 """The data budget: bytes per billing period, charged with every byte a run moves.
 
 Before each run the scheduler estimates its cost from the last run of the same test and skips
-the run (or falls back to latency-only probing) when the rest of the period cannot cover it.
-The period resets at 00:00 UTC on the configured day of the month.
+the run when the rest of the period cannot cover it. The period resets at 00:00 UTC on the
+configured day of the month. There is no latency-only fallback: continuous latency is a job for
+blackbox_exporter, and a test's own latency samples only mean something next to its load.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 
-Decision = Literal["run", "latency_only", "skip"]
+Decision = Literal["run", "skip"]
 
 # A run can move more than the last one did (a faster link, a longer warm-up).
 ESTIMATE_MARGIN = 1.2
@@ -21,7 +22,6 @@ ESTIMATE_MARGIN = 1.2
 class Budget:
     limit: int | None
     reset_day: int = 1
-    on_exhausted: Literal["latency_only", "skip"] = "latency_only"
     period_start: date | None = None
     transferred: int = 0
 
@@ -54,7 +54,7 @@ class Budget:
             return "run"
         needed = 0 if estimate is None else int(estimate * ESTIMATE_MARGIN)
         if remaining <= 0 or needed > remaining:
-            return self.on_exhausted
+            return "skip"
         return "run"
 
     def to_dict(self) -> dict[str, Any]:

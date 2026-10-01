@@ -12,10 +12,13 @@ import math
 import random
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from zoneinfo import ZoneInfo
 
 from cronsim import CronSim
+
+if TYPE_CHECKING:
+    from .businesshours import BusinessHours
 
 
 class Schedule(Protocol):
@@ -94,6 +97,31 @@ class CronSchedule:
         first = self._next_fire(now)
         second = self._next_fire(first)
         return max(second - first, 1.0)
+
+
+def next_run(
+    schedule: Schedule,
+    now: float,
+    rng: random.Random,
+    hours: BusinessHours | None = None,
+    limit: int = 10_000,
+) -> float | None:
+    """The next run after `now`, never inside business hours.
+
+    A random schedule's gap counts only time outside business hours, so runs spread evenly over
+    the allowed hours. A cron run that falls in business hours is skipped for the next one.
+    Returns None only when `limit` cron runs in a row all fall in business hours.
+    """
+    if hours is None or not hours.enabled:
+        return schedule.next_after(now, rng)
+    if isinstance(schedule, RandomSchedule):
+        return hours.advance(now, schedule.draw_gap(rng))
+    at = now
+    for _ in range(limit):
+        at = schedule.next_after(at, rng)
+        if not hours.is_blocked(at):
+            return at
+    return None
 
 
 def describe(schedule: Schedule) -> str:
