@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bandwidth-exporter"
+version = "0.1.0"
+description = "Prometheus exporter that runs scheduled north/south bandwidth tests and serves the cached results."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "Caleb Sargeant" }]
+keywords = ["prometheus", "exporter", "bandwidth", "speedtest", "iperf3", "throughput"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: System Administrators",
+    "Topic :: System :: Networking :: Monitoring",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX :: Linux",
+]
+# The data plane is stdlib only (blocking sockets and http.client in a worker process,
+# iperf3 as a subprocess). These are the control plane: config, schedule, HTTP surface.
+dependencies = [
+    "cronsim>=2.7",
+    "fastapi>=0.115",
+    "prometheus-client>=0.21",
+    "pydantic>=2.9",
+    "pydantic-settings[yaml]>=2.6",
+    "tzdata>=2024.1",
+    "uvicorn>=0.32",
+]
+
+[project.scripts]
+bandwidth-exporter = "bandwidth_exporter.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/CalebSargeant/bandwidth-exporter"
+Source = "https://github.com/CalebSargeant/bandwidth-exporter"
+Issues = "https://github.com/CalebSargeant/bandwidth-exporter/issues"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27",        # FastAPI's TestClient
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5",
+    "pytest-timeout>=2.3",
+    "ruff>=0.16",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bandwidth_exporter"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+# Selected explicitly: each Ruff release turns more rules on, and a lint set that changes
+# underneath you fails CI on a commit that touched none of it.
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "BLE", "S", "C4", "UP", "SIM", "PIE", "G", "RUF"]
+ignore = [
+    "S603",   # subprocess without shell: argument lists are built from validated config only
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "S101",   # assert is the test
+    "S105", "S106",  # tokens in fixtures are fake
+    "S104",   # binding 0.0.0.0 in config fixtures
+    "S311",   # pseudo-random is fine in tests
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --timeout=60 --cov=bandwidth_exporter --cov-report=term-missing:skip-covered"

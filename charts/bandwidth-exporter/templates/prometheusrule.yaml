@@ -1,0 +1,144 @@
+{{- if .Values.prometheusRule.enabled }}
+{{- $job := include "bandwidth-exporter.fullname" . }}
+{{- $ns := .Release.Namespace }}
+{{- $sel := printf "namespace=%q, job=%q" $ns $job }}
+{{- $stale := mul (int .Values.prometheusRule.staleAfterHours) 3600 }}
+{{- $severity := .Values.prometheusRule.severity }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "bandwidth-exporter.fullname" . }}
+  labels:
+    {{- include "bandwidth-exporter.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: bandwidth-exporter.alerts
+      rules:
+        - alert: BandwidthExporterDown
+          expr: up{ {{- $sel }}} == 0
+          for: 10m
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: bandwidth-exporter is not being scraped
+            description: Prometheus cannot scrape {{ $job }} in {{ $ns }}; no bandwidth results are being recorded.
+        # The scheduler missed its own plan by more than an hour.
+        - alert: BandwidthTestOverdue
+          expr: |
+            bandwidth_next_run_timestamp_seconds{ {{- $sel }}} > 0
+            and time() > bandwidth_next_run_timestamp_seconds{ {{- $sel }}} + 3600
+          for: 15m
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: Bandwidth test {{ "{{" }} $labels.test {{ "}}" }} is overdue
+            description: The test was due over an hour ago and has not run; the exporter's queue may be stuck.
+        # No success for two of the longest scheduled gaps plus slack, ignoring young processes.
+        - alert: BandwidthTestStale
+          expr: |
+            (time() - bandwidth_last_success_timestamp_seconds{ {{- $sel }}}) > {{ $stale }}
+            and on (namespace, job, instance)
+            (time() - process_start_time_seconds{ {{- $sel }}}) > {{ $stale }}
+          for: 30m
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: No successful bandwidth test {{ "{{" }} $labels.test {{ "}}" }} for {{ .Values.prometheusRule.staleAfterHours }}h
+            description: Check bandwidth_test_failures_total and bandwidth_tests_skipped_total for the reason.
+        - alert: BandwidthTestsFailing
+          expr: |
+            (
+              sum without (reason) (increase(bandwidth_test_failures_total{ {{- $sel }}}[1d]))
+                / increase(bandwidth_tests_total{ {{- $sel }}}[1d])
+            ) > 0.5
+            and increase(bandwidth_tests_total{ {{- $sel }}}[1d]) >= 2
+          for: 1h
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: Most bandwidth tests {{ "{{" }} $labels.test {{ "}}" }} failed in the last day
+            description: More than half of the attempts in 24h failed. bandwidth_test_failures_total has the reasons.
+        # Every north/south result in the last day below the plan, with at least two results in play.
+        - alert: BandwidthDownloadBelowPlan
+          expr: |
+            max_over_time(bandwidth_download_bytes_per_second{ {{- $sel }}, kind="north_south"}[1d])
+              < {{ .Values.prometheusRule.belowPlanRatio }} * bandwidth_plan_download_bytes_per_second{ {{- $sel }}, kind="north_south"}
+            and changes(bandwidth_last_success_timestamp_seconds{ {{- $sel }}, kind="north_south"}[1d]) >= 2
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: Download on {{ "{{" }} $labels.test {{ "}}" }} below plan all day
+            description: The best download result in 24h was under the configured share of the plan.
+        - alert: BandwidthUploadBelowPlan
+          expr: |
+            max_over_time(bandwidth_upload_bytes_per_second{ {{- $sel }}, kind="north_south"}[1d])
+              < {{ .Values.prometheusRule.belowPlanRatio }} * bandwidth_plan_upload_bytes_per_second{ {{- $sel }}, kind="north_south"}
+            and changes(bandwidth_last_success_timestamp_seconds{ {{- $sel }}, kind="north_south"}[1d]) >= 2
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: Upload on {{ "{{" }} $labels.test {{ "}}" }} below plan all day
+            description: The best upload result in 24h was under the configured share of the plan.
+        # A CPU cap, not the network, probably limited the last result.
+        - alert: BandwidthTestCpuBound
+          expr: bandwidth_last_test_cpu_saturated{ {{- $sel }}} == 1
+          for: 1h
+          labels:
+            severity: info
+          annotations:
+            summary: Bandwidth test {{ "{{" }} $labels.test {{ "}}" }} was CPU-bound
+            description: The tester used over 90% of its CPU budget; raise the CPU request or remove a CPU limit.
+        # Projected use over 30 days at the last day's rate exceeds the budget.
+        - alert: BandwidthDataBudgetBurn
+          expr: |
+            sum by (namespace, job, instance) (
+              rate(bandwidth_sent_bytes_total{ {{- $sel }}}[1d]) + rate(bandwidth_received_bytes_total{ {{- $sel }}}[1d])
+            ) * 30 * 86400
+            > on (namespace, job, instance) bandwidth_data_budget_bytes{ {{- $sel }}}
+          for: 1h
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: Bandwidth tests are on course to exceed the data budget
+            description: At the last day's rate, tests would move more data in 30 days than the configured budget.
+        - alert: BandwidthDataBudgetNearlyExhausted
+          expr: |
+            bandwidth_budget_period_transferred_bytes{ {{- $sel }}}
+              > 0.8 * bandwidth_data_budget_bytes{ {{- $sel }}}
+          labels:
+            severity: {{ $severity }}
+          annotations:
+            summary: Over 80% of the bandwidth test data budget is used
+            description: When it runs out, tests fall back to latency-only probing or are skipped.
+        - alert: BandwidthPublicIpChanged
+          expr: changes(bandwidth_public_ip_hash{ {{- $sel }}}[6h]) > 0
+          labels:
+            severity: info
+          annotations:
+            summary: The public egress address seen by {{ "{{" }} $labels.test {{ "}}" }} changed
+            description: Results before and after a change of egress address may not be comparable.
+    {{- with .Values.prometheusRule.compatDashboard13665 }}
+    {{- if .enabled }}
+    {{- if not .test }}
+    {{- fail "prometheusRule.compatDashboard13665.test must name one north/south test" }}
+    {{- end }}
+    # Lets grafana.com dashboard 13665 work unchanged. These names deliberately break the
+    # level:metric:operations convention, and speedtest_server_id has no equivalent.
+    - name: bandwidth-exporter.compat-dashboard-13665
+      rules:
+        - record: speedtest_download_bits_per_second
+          expr: 8 * bandwidth_download_bytes_per_second{ {{- $sel }}, test={{ .test | quote }}}
+        - record: speedtest_upload_bits_per_second
+          expr: 8 * bandwidth_upload_bytes_per_second{ {{- $sel }}, test={{ .test | quote }}}
+        - record: speedtest_ping_latency_milliseconds
+          expr: 1000 * bandwidth_idle_latency_seconds{ {{- $sel }}, test={{ .test | quote }}}
+        - record: speedtest_jitter_latency_milliseconds
+          expr: 1000 * bandwidth_jitter_seconds{ {{- $sel }}, test={{ .test | quote }}}
+        - record: speedtest_up
+          expr: bandwidth_last_test_success{ {{- $sel }}, test={{ .test | quote }}}
+    {{- end }}
+    {{- end }}
+{{- end }}

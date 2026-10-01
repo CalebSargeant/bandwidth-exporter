@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A branch with an open PR fires both triggers; supersede the older run.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PROMETHEUS_VERSION: "3.15.0"
+  KUBECONFORM_VERSION: "0.8.0"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor and the ceiling of what pyproject claims to support.
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          # The uv that wrote uv.lock, and the one the Dockerfile uses.
+          version: "0.11.21"
+      - name: iperf3, for the engine's integration test
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends iperf3
+      - name: Install
+        run: uv sync --locked
+      - name: Ruff
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+      - name: Pytest
+        run: uv run pytest -q
+
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Tools
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          prom="prometheus-${PROMETHEUS_VERSION}.linux-amd64"
+          curl -fsSLO "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/${prom}.tar.gz"
+          curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/sha256sums.txt" \
+            | grep " ${prom}.tar.gz$" | sha256sum -c -
+          tar xzf "${prom}.tar.gz" "${prom}/promtool"
+          kc="kubeconform-linux-amd64.tar.gz"
+          curl -fsSLO "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/${kc}"
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/CHECKSUMS" \
+            | grep " ${kc}$" | sha256sum -c -
+          tar xzf "${kc}" kubeconform
+          echo "$RUNNER_TEMP/${prom}" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Helm lint
+        run: helm lint --strict charts/bandwidth-exporter
+      - name: Render and validate
+        run: |
+          set -euo pipefail
+          chart=charts/bandwidth-exporter
+          schemas=(-schema-location default
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json')
+          helm template t "$chart" | kubeconform -strict -summary "${schemas[@]}"
+          helm template t "$chart" --namespace bw \
+            --set serviceMonitor.enabled=true \
+            --set prometheusRule.enabled=true \
+            --set prometheusRule.compatDashboard13665.enabled=true \
+            --set prometheusRule.compatDashboard13665.test=cloudflare \
+            --set dashboard.enabled=true \
+            --set networkPolicy.enabled=true \
+            --set persistence.enabled=true \
+            --set workload.kind=StatefulSet \
+            --set image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+            --set-json 'config.north_south=[{"name":"cloudflare","backend":"cloudflare"}]' \
+            | kubeconform -strict -summary "${schemas[@]}"
+          # Settings the chart must refuse. (`! cmd` would never fail a `set -e` script.)
+          if helm template t "$chart" --set workload.kind=DaemonSet >/dev/null 2>&1; then
+            echo "a DaemonSet workload rendered" >&2; exit 1
+          fi
+          if helm template t "$chart" --set-json 'config.trigger={"enabled":true}' >/dev/null 2>&1; then
+            echo "an open trigger rendered" >&2; exit 1
+          fi
+      - name: Alert rules (promtool)
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/rules"
+          mkdir -p "$work"
+          cp charts/bandwidth-exporter/ci/rules-test.yaml "$work/"
+          helm template t charts/bandwidth-exporter --namespace bw \
+            --set prometheusRule.enabled=true \
+            --show-only templates/prometheusrule.yaml \
+            | yq '{"groups": .spec.groups}' > "$work/rules.yaml"
+          promtool check rules "$work/rules.yaml"
+          (cd "$work" && promtool test rules rules-test.yaml)
+      - name: Dashboard is valid JSON with a fixed uid
+        run: |
+          jq -e '.uid == "bandwidth-exporter" and (.panels | length > 0)' \
+            charts/bandwidth-exporter/files/dashboard.json
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build (amd64, not pushed)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime
+          load: true
+          tags: bandwidth-exporter:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint iperf3 bandwidth-exporter:ci --version
+          docker run --rm bandwidth-exporter:ci version
+          docker run --rm --read-only --user 10001 bandwidth-exporter:ci check-config
+          cid=$(docker run -d --read-only --tmpfs /tmp --tmpfs /var/lib/bandwidth-exporter \
+            --user 10001 -p 10056:10056 bandwidth-exporter:ci)
+          trap 'docker logs "$cid"; docker rm -f "$cid"' EXIT
+          for _ in $(seq 30); do
+            curl -fsS localhost:10056/readyz >/dev/null && break
+            sleep 1
+          done
+          # Not `curl | grep -q`: grep exits at the first match and pipefail fails curl.
+          curl -fsS localhost:10056/metrics > "$RUNNER_TEMP/metrics.txt"
+          grep -q '^bandwidth_build_info' "$RUNNER_TEMP/metrics.txt"

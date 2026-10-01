@@ -1,0 +1,17 @@
+bandwidth-exporter {{ .Chart.AppVersion }} is running as a single {{ .Values.workload.kind }}.
+{{- $tests := (.Values.config | default dict).north_south | default list }}
+{{- if and (not $tests) (not .Values.existingConfigMap) }}
+
+No tests are configured, so nothing is measured yet. Name a target under config.north_south,
+for example Cloudflare's speed test:
+
+  config:
+    north_south:
+      - name: cloudflare
+        backend: cloudflare
+{{- end }}
+
+Results are cached; a scrape never starts a test. See what is planned and the latest results:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "bandwidth-exporter.fullname" . }} {{ .Values.service.port }}
+  curl -s localhost:{{ .Values.service.port }}/api/v1/tests

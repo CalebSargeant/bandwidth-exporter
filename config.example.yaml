@@ -1,0 +1,60 @@
+# bandwidth-exporter configuration. Every key is optional; with no tests the exporter runs and
+# measures nothing (no third-party service is used until you name it).
+#
+# Units: durations as 10s / 15m / 4h / 1h30m, sizes as 500GB / 25MB / 5GiB, rates as 1Gbit/s /
+# 500Mbps / 100MB/s. Metrics are always in bytes and seconds.
+#
+# Environment variables override scalars: BWEXP_LISTEN, BWEXP_LOG_LEVEL, BWEXP_TRIGGER__ENABLED,
+# and so on (nested keys joined with __). Secrets only ever come from the environment.
+
+listen: "0.0.0.0:10056"
+state_dir: /var/lib/bandwidth-exporter   # last results, schedule position and budget
+log_level: info                          # debug | info | warning | error
+log_format: text                         # text | json
+startup_delay: 30s                       # a test due at start-up waits this long
+network_mode: ""                         # recorded on bandwidth_test_info, e.g. pod or host
+
+trigger:                                 # POST /api/v1/tests/{name}/run
+  enabled: false                         # off by default, like Prometheus' --web.enable-lifecycle
+  token_env: BWEXP_TRIGGER_TOKEN         # the bearer token's environment variable
+  min_interval: 15m                      # per test; extra requests get 429 with Retry-After
+
+budget:
+  limit: 500GB                           # per billing period, all tests and directions; omit for none
+  reset_day: 1                           # day of the month, 00:00 UTC
+  on_exhausted: latency_only             # latency_only (where the backend can) or skip
+
+defaults:
+  schedule: {random: {mean: 4h, min: 1h, max: 12h}}   # truncated exponential
+  # schedule: {cron: "7 */6 * * *", jitter: 5m, timezone: Europe/Amsterdam}
+  warmup: auto        # until three 0.5 s chunks agree within 10%, at most max(2s, 10 x RTT, 5s cap)
+  duration: 10s       # measured phase per direction
+  max_duration: 15s   # hard cap per direction, warm-up included
+  early_stop: true    # stop after at least 3 s once the rate is stable
+  streams: 4
+  directions: [download, upload]   # always one after the other, never both at once
+
+north_south:
+  # Cloudflare's speed test. No published terms for programmatic use: keep it infrequent.
+  - name: cloudflare
+    backend: cloudflare
+    schedule: {random: {mean: 6h, min: 2h, max: 15h}}
+    plan: {download: 1Gbit/s, upload: 1Gbit/s}   # optional; exported for alerts
+    # ip_family: auto        # auto | ipv4 | ipv6
+    # bind_address: 192.0.2.10
+    # options:
+    #   download_chunk: 50MB  # per request; Cloudflare refuses 100MB and more
+    #   upload_chunk: 25MB
+    #   latency_samples: 20
+    #   loaded_latency_interval: 400ms
+
+  # Your own iperf3 server: the production pattern. Never point this at public iperf3 servers.
+  - name: oci-fra
+    backend: iperf3
+    enabled: false
+    target: iperf.example.net:5201
+    streams: 4
+    # congestion_control: bbr
+    # options:
+    #   binary: iperf3
+    #   connect_timeout: 5s

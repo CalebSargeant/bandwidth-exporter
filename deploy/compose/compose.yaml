@@ -1,0 +1,30 @@
+# bandwidth-exporter on a host without Kubernetes.
+#
+# Host networking so the test measures the host's path, not a NAT and veth hop. Hardened like the
+# Helm chart, and deliberately without a `cpus:` limit: CPU caps show up as a slow network.
+#
+#   cp ../../config.example.yaml config.yaml   # then edit
+#   docker compose up -d
+#   curl -s localhost:10056/api/v1/tests
+
+services:
+  bandwidth-exporter:
+    image: ghcr.io/calebsargeant/bandwidth-exporter:0.1.0
+    restart: unless-stopped
+    network_mode: host
+    user: "10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp
+    environment:
+      BWEXP_CONFIG: /etc/bandwidth-exporter/config.yaml
+      BWEXP_NETWORK_MODE: host
+    volumes:
+      - ./config.yaml:/etc/bandwidth-exporter/config.yaml:ro
+      - state:/var/lib/bandwidth-exporter
+    stop_grace_period: 60s
+
+volumes:
+  state:

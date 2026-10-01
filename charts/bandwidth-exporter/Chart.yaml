@@ -1,0 +1,21 @@
+apiVersion: v2
+name: bandwidth-exporter
+description: >-
+  Scheduled north/south bandwidth tests (Cloudflare or your own iperf3 server) with cached results
+  for Prometheus. A scrape never starts a test.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/CalebSargeant/bandwidth-exporter
+sources:
+  - https://github.com/CalebSargeant/bandwidth-exporter
+keywords:
+  - prometheus
+  - exporter
+  - bandwidth
+  - speedtest
+  - iperf3
+maintainers:
+  - name: Caleb Sargeant
+    url: https://github.com/CalebSargeant
