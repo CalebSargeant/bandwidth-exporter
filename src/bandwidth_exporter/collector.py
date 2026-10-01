@@ -33,7 +33,7 @@ from .model import (
     TestState,
 )
 
-LABELS = ["test", "kind", "peer"]
+LABELS = ["test", "kind", "peer", "zone", "peer_zone"]
 INFO_LABELS = [
     "backend",
     "method",

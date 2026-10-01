@@ -5,8 +5,8 @@ description: >-
   own iperf3 server, east/west between instances that answer each other. A scrape never starts a
   test, and business hours can be kept free of tests.
 type: application
-version: 0.2.0
-appVersion: "0.2.0"
+version: 0.3.0
+appVersion: "0.3.0"
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/CalebSargeant/bandwidth-exporter
 sources:

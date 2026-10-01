@@ -322,6 +322,9 @@ def check_config(settings: Settings) -> int:
         print("data budget: unlimited")
     else:
         print(f"data budget: {budget.limit / 1e9:g} GB per period from day {budget.reset_day}")
+    if settings.zones:
+        zones = ", ".join(f"{peer}={zone}" for peer, zone in sorted(settings.zones.items()))
+        print(f"zones: {zones}; this instance: {settings.own_zone or '(none)'}")
     if settings.north_south and not settings.runs_north_south:
         print(f"north/south tests run on {settings.north_south_on} only")
     if not tests and not plans:

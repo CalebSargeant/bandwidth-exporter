@@ -188,6 +188,8 @@ def _test_view(state: Any) -> dict[str, Any]:
         "name": state.spec.name,
         "key": state.spec.key,
         "peer": state.spec.peer or None,
+        "zone": state.spec.zone or None,
+        "peer_zone": state.spec.peer_zone or None,
         "kind": state.spec.kind,
         "backend": state.spec.backend,
         "target": state.spec.target,

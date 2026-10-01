@@ -71,7 +71,7 @@ def test_full_example(tmp_path):
     assert iperf.target == "iperf.example.net:5201"
     assert iperf.streams == 8
     assert isinstance(iperf.schedule, CronSchedule)
-    assert cloudflare.labels == ("cloudflare", "north_south", "")
+    assert cloudflare.labels == ("cloudflare", "north_south", "", "", "")
 
 
 def test_environment_overrides_the_file(tmp_path, monkeypatch):
