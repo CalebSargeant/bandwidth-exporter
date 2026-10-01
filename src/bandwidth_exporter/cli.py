@@ -92,7 +92,10 @@ def build_scheduler(settings: Settings, exclusive: Exclusive | None = None) -> S
 
 
 def collector_factory(
-    settings: Settings, scheduler: Scheduler, responder: Responder | None = None
+    settings: Settings,
+    scheduler: Scheduler,
+    responder: Responder | None = None,
+    disabled: tuple[str, ...] = (),
 ) -> partial[BandwidthCollector]:
     peer_role = bool(settings.east_west) or settings.responder.enabled
     return partial(
@@ -104,6 +107,7 @@ def collector_factory(
         cpu_quota_cores=cgroup.cpu_quota_cores(),
         responder=(responder.stats if responder is not None else None),
         peer_id=settings.own_peer_id if peer_role else "",
+        disabled=dict.fromkeys(disabled, "missing_key"),
     )
 
 
@@ -114,23 +118,37 @@ def _peer_key(env: str) -> bytes | None:
         return None
 
 
+def keyless_tests(settings: Settings) -> tuple[str, ...]:
+    """East/west tests whose signing key is unset or too short. They are disabled, not fatal:
+    a release that also runs other tests keeps running them."""
+    return tuple(
+        plan.name for plan in east_west_plans(settings) if _peer_key(plan.template.key_env) is None
+    )
+
+
+def _responder_keys_problem(settings: Settings) -> str | None:
+    if not settings.responder.enabled:
+        return None
+    try:
+        KeyStore.parse(os.environ.get(settings.responder.keys_env, ""))
+    except ValueError:
+        return (
+            "responder: the peer keys (responder.keys_env) must be one key, or a JSON "
+            "object of peer id to key, each at least 16 characters"
+        )
+    return None
+
+
 def missing_peer_keys(settings: Settings) -> list[str]:
-    """What is missing before this configuration can run."""
+    """What is missing before this configuration can run fully."""
     # The messages name the setting, not the variable or anything read from it.
-    problems = []
-    for plan in east_west_plans(settings):
-        if _peer_key(plan.template.key_env) is None:
-            problems.append(
-                f"{plan.name}: the peer key (auth.key_env) is unset or under 16 characters"
-            )
-    if settings.responder.enabled:
-        try:
-            KeyStore.parse(os.environ.get(settings.responder.keys_env, ""))
-        except ValueError:
-            problems.append(
-                "responder: the peer keys (responder.keys_env) must be one key, or a JSON "
-                "object of peer id to key, each at least 16 characters"
-            )
+    problems = [
+        f"{name}: the peer key (auth.key_env) is unset or under 16 characters"
+        for name in keyless_tests(settings)
+    ]
+    responder = _responder_keys_problem(settings)
+    if responder is not None:
+        problems.append(responder)
     return problems
 
 
@@ -160,7 +178,7 @@ def _quiet_server(uvicorn: Any) -> type:
     return Server
 
 
-async def _serve(settings: Settings, token: str | None) -> None:
+async def _serve(settings: Settings, token: str | None, disabled: tuple[str, ...] = ()) -> None:
     import uvicorn
 
     from .app import create_app
@@ -177,14 +195,14 @@ async def _serve(settings: Settings, token: str | None) -> None:
             exclusive,
             settings.hours,
         )
-    plans = east_west_plans(settings)
+    plans = [plan for plan in east_west_plans(settings) if plan.name not in disabled]
     if not scheduler.snapshot.tests and not plans and responder is None:
         log.warning("nothing to do: add a test under north_south or east_west")
 
     metrics_app = create_app(
         settings,
         scheduler,
-        collector_factory=collector_factory(settings, scheduler, responder),
+        collector_factory=collector_factory(settings, scheduler, responder, disabled),
         token=token,
         manage_scheduler=False,
     )
@@ -255,11 +273,17 @@ def serve(settings: Settings) -> int:
             settings.trigger.token_env,
         )
         return 2
-    problems = missing_peer_keys(settings)
-    if problems:
-        for problem in problems:
-            log.error("%s", problem)
+    responder_problem = _responder_keys_problem(settings)
+    if responder_problem is not None:
+        log.error("%s", responder_problem)
         return 2
+    disabled = keyless_tests(settings)
+    for name in disabled:
+        log.error(
+            "%s: the peer key (auth.key_env) is unset or under 16 characters; the test is "
+            "disabled until it is set and the exporter restarts",
+            name,
+        )
     try:
         settings.state_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -268,7 +292,7 @@ def serve(settings: Settings) -> int:
             settings.state_dir,
             exc,
         )
-    asyncio.run(_serve(settings, token))
+    asyncio.run(_serve(settings, token, disabled))
     return 0
 
 

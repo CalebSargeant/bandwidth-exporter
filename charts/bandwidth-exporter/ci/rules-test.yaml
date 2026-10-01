@@ -7,6 +7,29 @@ rule_files:
 evaluation_interval: 1m
 
 tests:
+  - name: a disabled test alerts after 15 minutes
+    interval: 5m
+    input_series:
+      - series: 'bandwidth_test_disabled{namespace="bw", job="t-bandwidth-exporter", instance="i", test="mgmt", reason="missing_key"}'
+        values: "1x12"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: BandwidthTestDisabled
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: BandwidthTestDisabled
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: bw
+              job: t-bandwidth-exporter
+              instance: i
+              test: mgmt
+              reason: missing_key
+            exp_annotations:
+              summary: Bandwidth test mgmt is disabled (missing_key)
+              description: missing_key means its auth.key_env is unset or under 16 characters; set it and restart the exporter.
+
   - name: a test that never succeeds goes stale once the exporter has been up long enough
     # Scraped every 5m, inside Prometheus' 5m lookback, so the 30m `for` can elapse.
     interval: 5m

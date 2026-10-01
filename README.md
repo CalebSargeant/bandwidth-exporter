@@ -109,7 +109,9 @@ keeps a mesh's pairs at N x k instead of N x (N-1).
 Keys: one shared key for every peer, or a JSON object of peer id to key on the responder side.
 They come from environment variables (`BWEXP_PEER_KEY`, `BWEXP_PEER_KEYS`), in Kubernetes from a
 Secret. Each east/west test can sign with its own variable (`auth: {key_env: ...}`), so tests
-to instances you share a key with elsewhere need not use the cluster's own key.
+to instances you share a key with elsewhere need not use the cluster's own key. A test whose
+key is missing is disabled (`bandwidth_test_disabled{reason="missing_key"}`) and the others
+keep running; a responder without its keys refuses to start.
 
 ## Zones: region to region
 
@@ -160,6 +162,7 @@ east/west result reads node to peer.
 | `bandwidth_data_budget_bytes`, `bandwidth_budget_period_transferred_bytes` | gauge | Budget and use this period |
 | `bandwidth_responder_sessions_total`, `bandwidth_responder_rejected_sessions_total{reason}` | counter | Slots granted; refusals (auth, replay, busy, business_hours, ...) |
 | `bandwidth_responder_sent_bytes_total`, `bandwidth_responder_received_bytes_total`, `bandwidth_responder_busy` | | Responder load (built-in engine) |
+| `bandwidth_test_disabled{test, reason}` | gauge | A configured test that is not running (`missing_key`) |
 | `bandwidth_peer_info{peer_id}`, `bandwidth_cpu_quota_cores`, `bandwidth_on_demand_requests_total{result}`, `bandwidth_build_info` | | Process |
 
 Failure reasons: `timeout`, `connect`, `auth`, `peer_busy`, `protocol`, `tool_error`. Skip

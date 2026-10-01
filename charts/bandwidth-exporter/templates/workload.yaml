@@ -102,11 +102,17 @@ spec:
                 secretKeyRef:
                   name: {{ . }}
                   key: {{ $.Values.peerKeys.keyKey }}
+                  {{- if $.Values.peerKeys.optional }}
+                  optional: true
+                  {{- end }}
             - name: BWEXP_PEER_KEYS
               valueFrom:
                 secretKeyRef:
                   name: {{ . }}
                   key: {{ $.Values.peerKeys.keysKey | default $.Values.peerKeys.keyKey }}
+                  {{- if $.Values.peerKeys.optional }}
+                  optional: true
+                  {{- end }}
             {{- end }}
             {{- if .Values.trigger.existingSecret }}
             - name: BWEXP_TRIGGER_TOKEN

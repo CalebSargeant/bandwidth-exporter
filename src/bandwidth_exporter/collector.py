@@ -11,7 +11,7 @@ in the `*_timestamp_seconds` gauges.
 from __future__ import annotations
 
 import platform
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 
 from prometheus_client.core import (
     CounterMetricFamily,
@@ -66,6 +66,7 @@ class BandwidthCollector(Collector):
         only: str | None = None,
         responder: Callable[[], ResponderStats | None] | None = None,
         peer_id: str = "",
+        disabled: Mapping[str, str] | None = None,
     ) -> None:
         self._snapshot = snapshot
         self._network_mode = network_mode
@@ -75,6 +76,7 @@ class BandwidthCollector(Collector):
         self._only = only
         self._responder = responder
         self._peer_id = peer_id
+        self._disabled = dict(disabled or {})
 
     def describe(self) -> Iterable[Metric]:
         # Unchecked collector: families depend on the snapshot.
@@ -90,6 +92,20 @@ class BandwidthCollector(Collector):
         if self._only is None:
             yield from self._process(snap)
             yield from self._responder_metrics()
+            yield from self._disabled_tests()
+
+    def _disabled_tests(self) -> Iterator[Metric]:
+        if not self._disabled:
+            return
+        family = _gauge(
+            "bandwidth_test_disabled",
+            "1 for a configured test that is not running, by reason (missing_key: its peer "
+            "key is unset or too short).",
+            labels=["test", "reason"],
+        )
+        for name, reason in sorted(self._disabled.items()):
+            family.add_metric([name, reason], 1.0)
+        yield family
 
     # --- per-test results --------------------------------------------------------------
 
