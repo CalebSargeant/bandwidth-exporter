@@ -1,0 +1,6 @@
+{
+  "start": {"connected": [], "version": "iperf 3.22", "system_info": "Linux test 6.8.0 #1 SMP x86_64"},
+  "intervals": [],
+  "end": {},
+  "error": "error - the server is busy running a test. try again later"
+}
