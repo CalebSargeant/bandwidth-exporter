@@ -116,21 +116,20 @@ def _peer_key(env: str) -> bytes | None:
 
 def check_secrets(settings: Settings) -> list[str]:
     """What is missing before this configuration can run."""
+    # The messages name the setting, not the variable or anything read from it.
     problems = []
     for plan in east_west_plans(settings):
-        env = plan.template.key_env
-        try:
-            agent_key(os.environ.get(env), env)
-        except ValueError:
-            problems.append(f"{plan.name}: ${env} is empty or shorter than 16 characters")
+        if _peer_key(plan.template.key_env) is None:
+            problems.append(
+                f"{plan.name}: the peer key (auth.key_env) is unset or under 16 characters"
+            )
     if settings.responder.enabled:
-        env = settings.responder.keys_env
         try:
-            KeyStore.parse(os.environ.get(env, ""))
+            KeyStore.parse(os.environ.get(settings.responder.keys_env, ""))
         except ValueError:
             problems.append(
-                f"responder: ${env} must hold one key, or a JSON object of peer id to key, "
-                "each at least 16 characters"
+                "responder: the peer keys (responder.keys_env) must be one key, or a JSON "
+                "object of peer id to key, each at least 16 characters"
             )
     return problems
 
