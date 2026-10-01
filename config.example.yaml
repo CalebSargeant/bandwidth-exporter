@@ -2,17 +2,31 @@
 # measures nothing (no third-party service is used until you name it).
 #
 # Units: durations as 10s / 15m / 4h / 1h30m, sizes as 500GB / 25MB / 5GiB, rates as 1Gbit/s /
-# 500Mbps / 100MB/s. Metrics are always in bytes and seconds.
+# 500Mbps / 100MB/s, times of day as "19:00" (quote them). Metrics are always in bytes and
+# seconds.
 #
-# Environment variables override scalars: BWEXP_LISTEN, BWEXP_LOG_LEVEL, BWEXP_TRIGGER__ENABLED,
-# and so on (nested keys joined with __). Secrets only ever come from the environment.
+# Environment variables override scalars: BWEXP_LISTEN, BWEXP_LOG_LEVEL, BWEXP_PEER_ID,
+# BWEXP_TRIGGER__ENABLED, and so on (nested keys joined with __). Secrets only ever come from the
+# environment.
 
 listen: "0.0.0.0:10056"
 state_dir: /var/lib/bandwidth-exporter   # last results, schedule position and budget
 log_level: info                          # debug | info | warning | error
 log_format: text                         # text | json
-startup_delay: 30s                       # a test due at start-up waits this long
+startup_delay: 30s                       # a test due at start-up waits this long ...
+startup_jitter: 0s                       # ... plus a random share of this (set it for DaemonSets)
 network_mode: ""                         # recorded on bandwidth_test_info, e.g. pod or host
+peer_id: ""                              # this instance among its peers; the host name if unset
+
+# No test starts inside these hours: a test saturates the link it measures. Random schedules
+# count only the time outside them, so runs spread over evenings, nights and weekends.
+business_hours:
+  timezone: Europe/Amsterdam
+  days: [mon, tue, wed, thu, fri]
+  start: "07:00"
+  end: "19:00"
+  # windows:                             # more windows, each with days/start/end
+  #   - {days: [sat], start: "09:00", end: "13:00"}
 
 trigger:                                 # POST /api/v1/tests/{name}/run
   enabled: false                         # off by default, like Prometheus' --web.enable-lifecycle
@@ -20,9 +34,8 @@ trigger:                                 # POST /api/v1/tests/{name}/run
   min_interval: 15m                      # per test; extra requests get 429 with Retry-After
 
 budget:
-  limit: 500GB                           # per billing period, all tests and directions; omit for none
+  limit: 500GB                           # per billing period, all tests; past it runs are skipped
   reset_day: 1                           # day of the month, 00:00 UTC
-  on_exhausted: latency_only             # latency_only (where the backend can) or skip
 
 defaults:
   schedule: {random: {mean: 4h, min: 1h, max: 12h}}   # truncated exponential
@@ -34,6 +47,8 @@ defaults:
   streams: 4
   directions: [download, upload]   # always one after the other, never both at once
 
+# North/south: this site to the Internet. One tester per WAN egress.
+north_south_on: ""    # with several instances (a DaemonSet), the peer id that runs these
 north_south:
   # Cloudflare's speed test. No published terms for programmatic use: keep it infrequent.
   - name: cloudflare
@@ -53,8 +68,37 @@ north_south:
     backend: iperf3
     enabled: false
     target: iperf.example.net:5201
-    streams: 4
     # congestion_control: bbr
-    # options:
-    #   binary: iperf3
-    #   connect_timeout: 5s
+
+# East/west: between instances you run (nodes, clusters, sites). Each needs the responder below.
+east_west:
+  # Every pod behind a headless Service; each agent tests 3 of them, picked by rendezvous
+  # hashing so pairings survive restarts.
+  - name: cluster-mesh
+    enabled: false
+    backend: builtin              # builtin (raw TCP) or iperf3 (a single-use server per test)
+    discovery: {dns: bandwidth-exporter-peers.monitoring.svc.cluster.local, port: 10057}
+    topology: {random_peers: 3}   # unset for a full mesh: N x (N-1) pairs
+    max_peers: 10
+    schedule: {random: {mean: 6h, min: 1h, max: 12h}}
+    auth: {key_env: BWEXP_PEER_KEY}
+  # Static peers; the id, never the address, becomes the `peer` label.
+  - name: sites
+    enabled: false
+    peers:
+      - {id: site-ams, address: "10.20.0.10:10057"}
+      - {id: site-lon, address: "10.30.0.10:10057"}
+
+# Answers peers' east/west tests. Peers sign every request (HMAC-SHA256); data ports only accept
+# the token of a slot the control API just granted.
+responder:
+  enabled: false
+  listen: "0.0.0.0:10057"
+  data_ports: {first: 5201, last: 5210}
+  max_concurrent_tests: 1
+  max_duration: 30s               # longest slot, warm-up included
+  max_bytes_per_test: 5GB
+  allowed_peers: []               # empty: any peer with a valid key
+  keys_env: BWEXP_PEER_KEYS       # one shared key, or a JSON object of peer id to key
+  respect_business_hours: true
+  engines: [builtin, iperf3]

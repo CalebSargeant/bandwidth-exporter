@@ -1,5 +1,11 @@
 # Schedule bandwidth tests, cache results, answer siblings
 
+> **Decisions since this report (2026-10-01, version 0.2).** Two recommendations changed after review.
+> Latency is measured only as part of a throughput test (idle before the load, and under load): continuous
+> latency probing between tests, and the budget's `latency_only` fallback, are dropped, because
+> blackbox_exporter already does that job. An exhausted budget now skips runs. And a `business_hours`
+> setting keeps throughput tests out of chosen hours: random gaps count only the time outside them.
+
 Design research for [calebsargeant/bandwidth-exporter](https://github.com/calebsargeant/bandwidth-exporter). Facts, versions and prices are as of 2026-09-26. Status: proposed, for review. The benchmark harness this document cites is committed next to it under [bench/](bench/run_all.sh), with every result table in [bench/results/summary_tables.md](bench/results/summary_tables.md).
 
 ## Executive summary
