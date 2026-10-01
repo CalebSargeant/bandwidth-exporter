@@ -11,6 +11,7 @@ Retry-After when busy, out of ports, or inside this peer's business hours.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -21,13 +22,30 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .responder import Rejected, Responder
 
+log = logging.getLogger(__name__)
+
+
+MESSAGES = {
+    "auth": "unauthenticated request",
+    "forbidden": "this peer may not test here",
+    "replay": "unauthenticated request",
+    "invalid": "invalid request",
+    "busy": "busy, try again later",
+    "business_hours": "inside this peer's business hours",
+    "no_port": "busy, try again later",
+    "engine_error": "the data server could not start",
+}
+
 
 def _refusal(exc: Rejected) -> JSONResponse:
     headers = {}
     if exc.retry_after is not None:
         headers["Retry-After"] = str(max(1, int(exc.retry_after + 0.999)))
+    message = MESSAGES.get(exc.reason, "refused")
+    if exc.reason in ("engine_error", "invalid"):
+        log.info("refused a peer request: %s", exc)
     return JSONResponse(
-        {"error": str(exc), "reason": exc.reason}, status_code=exc.status, headers=headers
+        {"error": message, "reason": exc.reason}, status_code=exc.status, headers=headers
     )
 
 

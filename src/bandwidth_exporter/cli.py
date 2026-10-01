@@ -118,15 +118,20 @@ def check_secrets(settings: Settings) -> list[str]:
     """What is missing before this configuration can run."""
     problems = []
     for plan in east_west_plans(settings):
+        env = plan.template.key_env
         try:
-            agent_key(os.environ.get(plan.template.key_env), plan.template.key_env)
-        except ValueError as exc:
-            problems.append(f"{plan.name}: {exc}")
+            agent_key(os.environ.get(env), env)
+        except ValueError:
+            problems.append(f"{plan.name}: ${env} is empty or shorter than 16 characters")
     if settings.responder.enabled:
+        env = settings.responder.keys_env
         try:
-            KeyStore.parse(os.environ.get(settings.responder.keys_env, ""))
-        except ValueError as exc:
-            problems.append(f"responder: ${settings.responder.keys_env}: {exc}")
+            KeyStore.parse(os.environ.get(env, ""))
+        except ValueError:
+            problems.append(
+                f"responder: ${env} must hold one key, or a JSON object of peer id to key, "
+                "each at least 16 characters"
+            )
     return problems
 
 

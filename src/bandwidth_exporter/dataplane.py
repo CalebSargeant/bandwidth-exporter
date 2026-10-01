@@ -106,7 +106,8 @@ class SlotServer:
                     if not count or not self._budget_left(count):
                         break
         except OSError:
-            pass
+            # The peer hung up or the slot was stopped: either ends this stream.
+            return
         finally:
             with contextlib.suppress(OSError):
                 conn.close()

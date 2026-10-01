@@ -101,7 +101,7 @@ class ResponderThread:
         while not self.server.started:
             await asyncio.sleep(0.02)
         self.started.set()
-        await serving
+        await asyncio.gather(serving)
 
     def __enter__(self) -> ResponderThread:
         self.thread.start()

@@ -107,6 +107,7 @@ class Responder:
         self.iperf3 = iperf3
         self.clock = clock
         self.nonces = NonceCache()
+        self._iperf3_help: str | None = None
         self.slots: dict[str, ActiveSlot] = {}
         # Slots that ended on their own, so a late release still gets the byte counts.
         self.finished: dict[str, ActiveSlot] = {}
@@ -305,10 +306,10 @@ class Responder:
                 str(port),
                 "--idle-timeout",
                 str(IPERF3_IDLE_TIMEOUT),
-                "--server-max-duration",
-                str(math.floor(duration)),
                 "--forceflush",
             ]
+            if "--server-max-duration" in await self._iperf3_options(binary):
+                args += ["--server-max-duration", str(math.floor(duration))]
             if self.bind not in ("0.0.0.0", "::"):  # noqa: S104 - comparing, not binding
                 args += ["--bind", self.bind]
             payload = b""
@@ -335,6 +336,22 @@ class Responder:
             self.rejected["engine_error"] += 1
             raise Rejected(503, "engine_error", "the data server did not start", BUSY_RETRY)
         return process
+
+    async def _iperf3_options(self, binary: str) -> str:
+        """iperf3's --help text, read once: older builds lack some server limits."""
+        if self._iperf3_help is None:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    binary,
+                    "--help",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
+                )
+                output, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+                self._iperf3_help = output.decode(errors="replace")
+            except (OSError, TimeoutError):
+                self._iperf3_help = ""
+        return self._iperf3_help
 
     async def _wait_ready(self, process: asyncio.subprocess.Process, engine: str) -> bool:
         assert process.stdout is not None  # noqa: S101 - created with a PIPE
