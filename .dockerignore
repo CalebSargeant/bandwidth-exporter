@@ -1,0 +1,16 @@
+# The image needs pyproject.toml, uv.lock, README.md and src/ only.
+.git
+.github
+.venv
+.ruff_cache
+.pytest_cache
+.coverage
+__pycache__/
+*.py[cod]
+charts
+deploy
+docs
+tests
+*.prom
+config.yaml
+state/
