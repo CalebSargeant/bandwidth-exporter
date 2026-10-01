@@ -21,11 +21,9 @@ from cronsim import CronSim
 class Schedule(Protocol):
     def next_after(self, now: float, rng: random.Random) -> float:
         """Unix time of the next run after `now`."""
-        ...
 
     def interval(self) -> float:
         """Typical gap in seconds, used for catch-up decisions at start-up."""
-        ...
 
 
 @dataclass(frozen=True)

@@ -16,7 +16,8 @@ log = logging.getLogger(__name__)
 
 
 class Runner(Protocol):
-    async def run(self, spec: TestSpec, *, latency_only: bool = False) -> RunResult: ...
+    async def run(self, spec: TestSpec, *, latency_only: bool = False) -> RunResult:
+        """Run one test and report what happened; never raises for a failed test."""
 
 
 class SubprocessRunner:

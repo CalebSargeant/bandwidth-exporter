@@ -148,13 +148,21 @@ def run_once(settings: Settings, names: list[str], textfile: Path | None) -> int
     return 1 if any(result.status == "failure" for result in results) else 0
 
 
+def _umask() -> int:
+    current = os.umask(0)
+    os.umask(current)
+    return current
+
+
 def _write_atomically(path: Path, payload: bytes) -> None:
     """node_exporter's textfile collector must never read a half-written file."""
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(payload)
-        os.chmod(tmp, 0o644)
+        # mkstemp creates the file 0600; give it the mode a normal create would (umask
+        # applied), so node_exporter, which runs as another user, can read it.
+        os.chmod(tmp, 0o666 & ~_umask())
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)

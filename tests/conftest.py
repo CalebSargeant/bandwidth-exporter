@@ -205,7 +205,7 @@ class FakeClock:
             return
         future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         heapq.heappush(self._sleepers, (self.now + max(0.0, seconds), next(self._seq), future))
-        await future
+        return await future
 
     async def settle(self) -> None:
         for _ in range(50):

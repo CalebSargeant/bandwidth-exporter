@@ -14,7 +14,6 @@ stands, so a rollout or a Flux reconcile does not trigger a gigabyte-scale test.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import random
 import time
@@ -38,9 +37,11 @@ TriggerOutcome = Literal["accepted", "conflict", "rate_limited", "unknown"]
 
 
 class Clock(Protocol):
-    def time(self) -> float: ...
+    def time(self) -> float:
+        """Wall time in Unix seconds."""
 
-    async def sleep(self, seconds: float) -> None: ...
+    async def sleep(self, seconds: float) -> None:
+        """Wait `seconds` of this clock's time."""
 
 
 class SystemClock:
@@ -129,9 +130,7 @@ class Scheduler:
         self.started = False
         for task in self._tasks:
             task.cancel()
-        for task in self._tasks:
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks = []
         await self._persist()
 
@@ -204,9 +203,7 @@ class Scheduler:
         finally:
             for task in tasks:
                 task.cancel()
-            for task in tasks:
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _worker(self) -> None:
         while True:
