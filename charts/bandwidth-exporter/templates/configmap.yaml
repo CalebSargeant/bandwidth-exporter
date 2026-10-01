@@ -1,0 +1,11 @@
+{{- if not .Values.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bandwidth-exporter.fullname" . }}
+  labels:
+    {{- include "bandwidth-exporter.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    {{- include "bandwidth-exporter.config" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,119 @@
+# promtool unit tests for the chart's alerts. CI renders the PrometheusRule with
+#   helm template t charts/bandwidth-exporter --namespace bw --set prometheusRule.enabled=true
+# into rules.yaml next to this file and runs `promtool test rules rules-test.yaml`.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: a test that never succeeds goes stale once the exporter has been up long enough
+    # Scraped every 5m, inside Prometheus' 5m lookback, so the 30m `for` can elapse.
+    interval: 5m
+    input_series:
+      - series: 'bandwidth_last_success_timestamp_seconds{namespace="bw", job="t-bandwidth-exporter", instance="10.0.0.1:10056", test="cloudflare", kind="north_south"}'
+        values: "0x576"
+      - series: 'process_start_time_seconds{namespace="bw", job="t-bandwidth-exporter", instance="10.0.0.1:10056"}'
+        values: "0x576"
+    alert_rule_test:
+      - eval_time: 20h
+        alertname: BandwidthTestStale
+        exp_alerts: []
+      - eval_time: 40h
+        alertname: BandwidthTestStale
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: bw
+              job: t-bandwidth-exporter
+              instance: 10.0.0.1:10056
+              test: cloudflare
+              kind: north_south
+            exp_annotations:
+              summary: No successful bandwidth test cloudflare for 32h
+              description: Check bandwidth_test_failures_total and bandwidth_tests_skipped_total for the reason.
+
+  - name: most runs failing in a day
+    interval: 4h
+    input_series:
+      - series: 'bandwidth_tests_total{namespace="bw", job="t-bandwidth-exporter", instance="i", test="cloudflare", kind="north_south"}'
+        values: "0+1x12"
+      - series: 'bandwidth_test_failures_total{namespace="bw", job="t-bandwidth-exporter", instance="i", test="cloudflare", kind="north_south", reason="connect"}'
+        values: "0+1x12"
+      - series: 'bandwidth_test_failures_total{namespace="bw", job="t-bandwidth-exporter", instance="i", test="cloudflare", kind="north_south", reason="timeout"}'
+        values: "0x12"
+    alert_rule_test:
+      - eval_time: 36h
+        alertname: BandwidthTestsFailing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: bw
+              job: t-bandwidth-exporter
+              instance: i
+              test: cloudflare
+              kind: north_south
+            exp_annotations:
+              summary: Most bandwidth tests cloudflare failed in the last day
+              description: More than half of the attempts in 24h failed. bandwidth_test_failures_total has the reasons.
+
+  - name: healthy runs do not alert
+    interval: 4h
+    input_series:
+      - series: 'bandwidth_tests_total{namespace="bw", job="t-bandwidth-exporter", instance="i", test="cloudflare", kind="north_south"}'
+        values: "0+1x12"
+      - series: 'bandwidth_test_failures_total{namespace="bw", job="t-bandwidth-exporter", instance="i", test="cloudflare", kind="north_south", reason="connect"}'
+        values: "0x12"
+      - series: 'bandwidth_last_success_timestamp_seconds{namespace="bw", job="t-bandwidth-exporter", instance="i", test="cloudflare", kind="north_south"}'
+        values: "0+14400x12"
+      - series: 'process_start_time_seconds{namespace="bw", job="t-bandwidth-exporter", instance="i"}'
+        values: "0x12"
+    alert_rule_test:
+      - eval_time: 36h
+        alertname: BandwidthTestsFailing
+        exp_alerts: []
+      - eval_time: 36h
+        alertname: BandwidthTestStale
+        exp_alerts: []
+
+  - name: below plan all day
+    interval: 4h
+    input_series:
+      - series: 'bandwidth_download_bytes_per_second{namespace="bw", job="t-bandwidth-exporter", instance="i", test="cloudflare", kind="north_south"}'
+        values: "50000000x12"
+      - series: 'bandwidth_plan_download_bytes_per_second{namespace="bw", job="t-bandwidth-exporter", instance="i", test="cloudflare", kind="north_south"}'
+        values: "125000000x12"
+      - series: 'bandwidth_last_success_timestamp_seconds{namespace="bw", job="t-bandwidth-exporter", instance="i", test="cloudflare", kind="north_south"}'
+        values: "0+14400x12"
+    alert_rule_test:
+      - eval_time: 36h
+        alertname: BandwidthDownloadBelowPlan
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: bw
+              job: t-bandwidth-exporter
+              instance: i
+              test: cloudflare
+              kind: north_south
+            exp_annotations:
+              summary: Download on cloudflare below plan all day
+              description: The best download result in 24h was under the configured share of the plan.
+
+  - name: exporter down
+    interval: 1m
+    input_series:
+      - series: 'up{namespace="bw", job="t-bandwidth-exporter", instance="i"}'
+        values: "0x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: BandwidthExporterDown
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              namespace: bw
+              job: t-bandwidth-exporter
+              instance: i
+            exp_annotations:
+              summary: bandwidth-exporter is not being scraped
+              description: Prometheus cannot scrape t-bandwidth-exporter in bw; no bandwidth results are being recorded.

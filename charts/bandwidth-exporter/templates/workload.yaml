@@ -1,0 +1,140 @@
+{{- $kind := .Values.workload.kind }}
+{{- if not (has $kind (list "Deployment" "StatefulSet")) }}
+{{- fail "workload.kind must be Deployment or StatefulSet" }}
+{{- end }}
+{{- $trigger := (.Values.config | default dict).trigger | default dict }}
+{{- if and $trigger.enabled (not .Values.trigger.existingSecret) (not .Values.existingConfigMap) }}
+{{- fail "config.trigger.enabled needs trigger.existingSecret: the exporter refuses an open trigger" }}
+{{- end }}
+apiVersion: apps/v1
+kind: {{ $kind }}
+metadata:
+  name: {{ include "bandwidth-exporter.fullname" . }}
+  labels:
+    {{- include "bandwidth-exporter.labels" . | nindent 4 }}
+spec:
+  # One tester per egress. Two would split the link and corrupt each other's results.
+  replicas: 1
+  revisionHistoryLimit: 3
+  {{- if eq $kind "Deployment" }}
+  strategy:
+    # RollingUpdate's surge would run two testers during every rollout.
+    type: Recreate
+  {{- else }}
+  serviceName: {{ include "bandwidth-exporter.fullname" . }}
+  podManagementPolicy: OrderedReady
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "bandwidth-exporter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if not .Values.existingConfigMap }}
+        checksum/config: {{ include "bandwidth-exporter.config" . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "bandwidth-exporter.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "bandwidth-exporter.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- if .Values.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: exporter
+          image: {{ include "bandwidth-exporter.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["serve"]
+          env:
+            - name: BWEXP_CONFIG
+              value: /etc/bandwidth-exporter/config.yaml
+            # iperf3 writes its stream buffer to a temporary file; the root filesystem is
+            # read-only.
+            - name: TMPDIR
+              value: /tmp
+            {{- if .Values.trigger.existingSecret }}
+            - name: BWEXP_TRIGGER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.trigger.existingSecret }}
+                  key: {{ .Values.trigger.secretKey }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/bandwidth-exporter
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/bandwidth-exporter
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "bandwidth-exporter.configMapName" . }}
+        - name: state
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "bandwidth-exporter.fullname" .) }}
+          {{- else }}
+          emptyDir:
+            sizeLimit: 64Mi
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

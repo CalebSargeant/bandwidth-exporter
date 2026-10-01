@@ -1,0 +1,173 @@
+# bandwidth-exporter: one tester per WAN egress, running tests on its own schedule and serving
+# the cached results on /metrics. See the repository README for the metrics and the design.
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: ghcr.io/calebsargeant/bandwidth-exporter
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # sha256:... When set it pins the image and wins over the tag.
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+workload:
+  # Deployment (replaced with Recreate, so a rollout never runs two testers at once) or
+  # StatefulSet (a strict at-most-one guarantee, at the price of manual recovery from a lost node).
+  # There is always exactly one replica: two testers on one egress split the link.
+  kind: Deployment
+
+# The exporter's config.yaml, rendered into a ConfigMap. The chart sets `listen`, `state_dir` and
+# `network_mode`. With no tests the exporter runs and measures nothing: name a target to start.
+#
+# Quick start against Cloudflare's speed test (no published terms for programmatic use, so keep
+# it infrequent):
+#   north_south:
+#     - name: cloudflare
+#       backend: cloudflare
+#       schedule: {random: {mean: 6h, min: 2h, max: 15h}}
+#
+# Your own iperf3 server (the recommended production target):
+#   north_south:
+#     - name: oci-fra
+#       backend: iperf3
+#       target: iperf.example.net:5201
+config:
+  north_south: []
+  # defaults:
+  #   schedule: {random: {mean: 4h, min: 1h, max: 12h}}
+  #   warmup: auto
+  #   duration: 10s
+  #   max_duration: 15s
+  #   streams: 4
+  # budget:
+  #   limit: 500GB
+  #   reset_day: 1
+  #   on_exhausted: latency_only
+  log_format: json
+
+# Use your own ConfigMap (key config.yaml) instead of `config`.
+existingConfigMap: ""
+
+# Address the exporter binds inside the pod. Use "::" on IPv6-only clusters.
+listenAddress: 0.0.0.0
+
+# POST /api/v1/tests/{name}/run, off unless config.trigger.enabled is true. The bearer token comes
+# from this Secret, never from values.
+trigger:
+  existingSecret: ""
+  secretKey: token
+
+extraEnv: []
+extraEnvFrom: []
+
+service:
+  type: ClusterIP
+  port: 10056
+  annotations: {}
+
+serviceMonitor:
+  enabled: false
+  interval: 60s
+  scrapeTimeout: 10s
+  # kube-prometheus-stack selects monitors by its release label unless told otherwise.
+  labels: {}
+  relabelings: []
+  metricRelabelings: []
+
+prometheusRule:
+  enabled: false
+  labels: {}
+  # No success for this long (and the exporter has been up at least this long). Two of the
+  # longest gaps the schedule allows, plus slack: 32h suits {mean: 6h, max: 15h}.
+  staleAfterHours: 32
+  severity: warning
+  # Every north/south result in a day below this share of the plan (needs `plan` on the test).
+  belowPlanRatio: 0.7
+  # Optional recording rules so grafana.com dashboard 13665 works unchanged for one test.
+  compatDashboard13665:
+    enabled: false
+    test: ""
+
+# A Grafana dashboard as a ConfigMap for the Grafana sidecar.
+dashboard:
+  enabled: false
+  labels:
+    grafana_dashboard: "1"
+  annotations: {}
+  # Default datasource uid of the dashboard's datasource variable; "default" is Grafana's default.
+  datasourceUid: default
+
+networkPolicy:
+  enabled: false
+  # Who may reach the metrics port. Egress stays open: tests go to the Internet by design.
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Nothing in this version talks to the Kubernetes API.
+  automountToken: false
+
+podAnnotations: {}
+podLabels: {}
+priorityClassName: ""
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Measure the node's path instead of the pod network's. Fails the Baseline Pod Security Standard.
+hostNetwork: false
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# A CPU request and deliberately no CPU limit: CFS throttling caps measured throughput almost
+# exactly in proportion, so a CPU limit shows up as a slow network. Size the request to the line
+# rate (about 0.1 core per Gbit/s for each end) where nodes are busy.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 384Mi
+
+# The state file (last results, schedule, budget). With an emptyDir it survives container
+# restarts but not rescheduling; a claim keeps it across both.
+persistence:
+  enabled: false
+  existingClaim: ""
+  storageClass: ""
+  size: 64Mi
+  accessModes:
+    - ReadWriteOnce
+
+# Longer than a test, so SIGTERM can stop one cleanly.
+terminationGracePeriodSeconds: 60
+
+livenessProbe:
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+readinessProbe:
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3

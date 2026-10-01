@@ -1,0 +1,18 @@
+{{- if .Values.dashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bandwidth-exporter.fullname" . }}-dashboard
+  labels:
+    {{- include "bandwidth-exporter.labels" . | nindent 4 }}
+    {{- with .Values.dashboard.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.dashboard.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  bandwidth-exporter.json: |-
+    {{- .Files.Get "files/dashboard.json" | replace "__DATASOURCE_UID__" (.Values.dashboard.datasourceUid | default "default") | nindent 4 }}
+{{- end }}
