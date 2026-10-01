@@ -14,8 +14,15 @@ from typing import Any, Literal
 from .config import TestSpec
 
 FAILURE_REASONS = ("timeout", "connect", "auth", "peer_busy", "protocol", "tool_error")
-SKIP_REASONS = ("busy", "budget", "peer_unavailable", "rate_limited", "cross_traffic")
-ON_DEMAND_RESULTS = ("accepted", "conflict", "rate_limited", "unauthorised")
+SKIP_REASONS = (
+    "busy",
+    "budget",
+    "business_hours",
+    "peer_unavailable",
+    "rate_limited",
+    "cross_traffic",
+)
+ON_DEMAND_RESULTS = ("accepted", "conflict", "rate_limited", "business_hours", "unauthorised")
 
 Status = Literal["success", "failure", "skipped"]
 
@@ -60,7 +67,6 @@ class RunResult:
     cpu_seconds: float = 0.0
     wall_seconds: float = 0.0
     cpu_saturated: bool = False
-    latency_only: bool = False
     # Kept in memory to derive a hash; never exported, persisted or logged as an address.
     public_ip: str | None = None
     info: dict[str, str] = field(default_factory=dict)
@@ -94,7 +100,6 @@ class RunResult:
             cpu_seconds=float(data.get("cpu_seconds") or 0.0),
             wall_seconds=float(data.get("wall_seconds") or 0.0),
             cpu_saturated=bool(data.get("cpu_saturated", False)),
-            latency_only=bool(data.get("latency_only", False)),
             public_ip=data.get("public_ip"),
             info={str(k): str(v) for k, v in (data.get("info") or {}).items()},
         )
@@ -130,6 +135,8 @@ class TestState:
     last_test_success: bool | None = None
     cpu_saturated: bool = False
     consecutive_failures: int = 0
+    # Peer-busy answers in a row (east/west): retried soon, then left to the schedule.
+    consecutive_busy: int = 0
     tests_total: int = 0
     failures: dict[str, int] = field(default_factory=lambda: dict.fromkeys(FAILURE_REASONS, 0))
     skipped: dict[str, int] = field(default_factory=lambda: dict.fromkeys(SKIP_REASONS, 0))
@@ -155,18 +162,22 @@ class TestState:
             changes["info"] = dict(result.info)
         if result.public_ip:
             changes["public_ip_hash"] = ip_hash(result.public_ip)
-        if result.idle_latency_seconds is not None and result.status != "failure":
-            changes["idle_latency_seconds"] = result.idle_latency_seconds
-            changes["jitter_seconds"] = result.jitter_seconds
 
         if result.status == "skipped":
             skipped[result.reason or "busy"] += 1
+            busy = result.reason == "busy"
+            changes["consecutive_busy"] = self.consecutive_busy + 1 if busy else 0
         else:
+            changes["consecutive_busy"] = 0
             changes["tests_total"] = self.tests_total + 1
             changes["last_attempt_time"] = started
             changes["cpu_saturated"] = result.cpu_saturated
             changes["last_transferred_bytes"] = result.transferred_bytes
             if result.status == "success":
+                # Latency is taken next to the load, so it only counts from a successful run.
+                if result.idle_latency_seconds is not None:
+                    changes["idle_latency_seconds"] = result.idle_latency_seconds
+                    changes["jitter_seconds"] = result.jitter_seconds
                 changes.update(
                     download=result.download or self.download,
                     upload=result.upload or self.upload,
@@ -184,6 +195,27 @@ class TestState:
         return replace(self, failures=failures, skipped=skipped, **changes)
 
 
+RESPONDER_REJECTIONS = (
+    "auth",
+    "forbidden",
+    "replay",
+    "invalid",
+    "busy",
+    "business_hours",
+    "no_port",
+    "engine_error",
+)
+
+
+@dataclass(frozen=True)
+class ResponderStats:
+    sessions_total: int = 0
+    rejected: dict[str, int] = field(default_factory=lambda: dict.fromkeys(RESPONDER_REJECTIONS, 0))
+    sent_bytes_total: int = 0
+    received_bytes_total: int = 0
+    active_slots: int = 0
+
+
 @dataclass(frozen=True)
 class Snapshot:
     tests: tuple[TestState, ...] = ()
@@ -193,11 +225,15 @@ class Snapshot:
     budget_transferred_bytes: int = 0
     on_demand: dict[str, int] = field(default_factory=lambda: dict.fromkeys(ON_DEMAND_RESULTS, 0))
 
-    def get(self, name: str) -> TestState | None:
+    def get(self, key: str) -> TestState | None:
+        """A test by name (north/south) or name@peer (east/west)."""
         for state in self.tests:
-            if state.spec.name == name:
+            if state.spec.key == key:
                 return state
         return None
+
+    def named(self, name: str) -> list[TestState]:
+        return [state for state in self.tests if state.spec.name == name]
 
 
 def _opt_float(value: Any) -> float | None:

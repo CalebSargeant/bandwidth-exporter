@@ -11,17 +11,25 @@ and nothing a server says ends up on a command line.
 
 from __future__ import annotations
 
+import contextlib
+import http.client
 import json
 import math
+import os
 import shutil
+import socket
 import subprocess
 import time
 from dataclasses import replace
 from typing import Any
 
 from .. import cgroup
+from ..config import format_host_port, parse_host_port
+from ..control import ControlClient, ControlError, agent_key
 from ..model import DirectionResult, RunResult
 from . import tcpinfo
+from .builtin import control_failure
+from .latency import idle_probe, jitter, median
 from .phases import auto_warmup_cap
 
 BUSY_MARKERS = ("server is busy", "busy running a test")
@@ -133,6 +141,8 @@ def parse(document: dict[str, Any], direction: str) -> tuple[DirectionResult, in
 
 
 def run(spec: dict[str, Any]) -> RunResult:
+    """North/south: run against `target`, your own iperf3 server. East/west: `target` is a
+    peer's responder, which starts a single-use iperf3 server for each direction."""
     started = time.monotonic()
     binary = spec["options"]["binary"]
     path = shutil.which(binary)
@@ -148,38 +158,50 @@ def run(spec: dict[str, Any]) -> RunResult:
         return RunResult.failure("tool_error", f"{binary} not found", info=info)
     info["tool_version"] = version(path)
 
+    east_west = spec.get("kind") == "east_west"
+    client: ControlClient | None = None
+    host = ""
+    latency: dict[str, Any] = {}
+    if east_west:
+        try:
+            key = agent_key(os.environ.get(spec["key_env"]), spec["key_env"])
+        except ValueError as exc:
+            return RunResult.failure("auth", str(exc), info=info)
+        host, control_port = parse_host_port(spec["target"], default_port=None)
+        client = ControlClient(spec["target"], spec["self_id"], key)
+        samples = _idle_latency(host, control_port, spec)
+        if samples:
+            latency = {"idle_latency_seconds": median(samples), "jitter_seconds": jitter(samples)}
+
     results: dict[str, DirectionResult] = {}
     sent = received = 0
     children_before = _children_cpu()
     outcome: RunResult | None = None
     for direction in spec["directions"]:
-        args = command(spec, direction, path)
-        timeout = spec["duration"] + 60
-        try:
-            proc = subprocess.run(
-                args, capture_output=True, text=True, timeout=timeout, check=False
+        run_spec = spec
+        slot = None
+        if client is not None:
+            omit = math.ceil(
+                spec["warmup"] if spec["warmup"] is not None else auto_warmup_cap(None)
             )
-        except subprocess.TimeoutExpired:
-            outcome = RunResult.failure(
-                "timeout", f"iperf3 {direction} did not finish in {timeout:g}s"
-            )
-            break
-        except OSError as exc:
-            outcome = RunResult.failure("tool_error", f"cannot run iperf3: {exc}")
-            break
+            try:
+                slot = client.open_slot(
+                    "iperf3", direction, spec["streams"], spec["duration"] + omit + 10, 0
+                )
+            except (ControlError, OSError, http.client.HTTPException) as exc:
+                outcome = control_failure(exc, "slot")
+                break
+            run_spec = {**spec, "target": format_host_port(host, slot.port)}
         try:
-            document = json.loads(proc.stdout) if proc.stdout.strip() else {}
-        except ValueError:
-            document = {}
-        error = document.get("error") or (proc.stderr.strip() if proc.returncode else "")
-        if error:
-            outcome = RunResult.failure(classify(error), f"iperf3 {direction}: {error}"[:500])
+            outcome_or_result = _run_direction(run_spec, direction, path)
+        finally:
+            if client is not None and slot is not None:
+                with contextlib.suppress(ControlError, OSError, http.client.HTTPException):
+                    client.close_slot(slot.id)
+        if isinstance(outcome_or_result, RunResult):
+            outcome = outcome_or_result
             break
-        try:
-            result, moved = parse(document, direction)
-        except (ValueError, KeyError, TypeError) as exc:
-            outcome = RunResult.failure("protocol", f"iperf3 {direction}: {exc}")
-            break
+        result, moved = outcome_or_result
         results[direction] = result
         if direction == "download":
             received += moved
@@ -191,6 +213,7 @@ def run(spec: dict[str, Any]) -> RunResult:
             status="success",
             download=results.get("download"),
             upload=results.get("upload"),
+            **latency,
         )
     wall = time.monotonic() - started
     cpu = _children_cpu() - children_before
@@ -203,6 +226,42 @@ def run(spec: dict[str, Any]) -> RunResult:
         cpu_seconds=round(cpu, 3),
         cpu_saturated=cgroup.saturated(cpu, wall, cgroup.available_cores()),
     )
+
+
+def _run_direction(
+    spec: dict[str, Any], direction: str, path: str
+) -> RunResult | tuple[DirectionResult, int]:
+    """One iperf3 client run: the result and the bytes moved, or a failed RunResult."""
+    args = command(spec, direction, path)
+    timeout = spec["duration"] + 60
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        return RunResult.failure("timeout", f"iperf3 {direction} did not finish in {timeout:g}s")
+    except OSError as exc:
+        return RunResult.failure("tool_error", f"cannot run iperf3: {exc}")
+    try:
+        document = json.loads(proc.stdout) if proc.stdout.strip() else {}
+    except ValueError:
+        document = {}
+    error = document.get("error") or (proc.stderr.strip() if proc.returncode else "")
+    if error:
+        return RunResult.failure(classify(error), f"iperf3 {direction}: {error}"[:500])
+    try:
+        return parse(document, direction)
+    except (ValueError, KeyError, TypeError) as exc:
+        return RunResult.failure("protocol", f"iperf3 {direction}: {exc}")
+
+
+def _idle_latency(host: str, port: int, spec: dict[str, Any]) -> list[float]:
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        return []
+    family, _, _, _, sockaddr = infos[0]
+    source = (spec["bind_address"], 0) if spec.get("bind_address") else None
+    samples, _ = idle_probe((str(sockaddr[0]), int(sockaddr[1])), family, 10, source)
+    return samples
 
 
 def _children_cpu() -> float:

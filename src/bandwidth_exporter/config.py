@@ -9,8 +9,10 @@ environment variable that holds them.
 from __future__ import annotations
 
 import ipaddress
+import random
 import re
-from dataclasses import dataclass, field
+import socket
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Annotated, Any, ClassVar, Literal
 
@@ -30,24 +32,31 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from .schedules import CronSchedule, RandomSchedule, Schedule
+from .businesshours import DAYS, BusinessHours, Window, parse_clock
+from .schedules import CronSchedule, RandomSchedule, Schedule, next_run
 from .units import parse_bytes, parse_duration, parse_rate
 
 DEFAULT_PORT = 10056
+DEFAULT_CONTROL_PORT = 10057
 DEFAULT_CONFIG_PATH = Path("/etc/bandwidth-exporter/config.yaml")
 
 Duration = Annotated[float, BeforeValidator(parse_duration)]
 Size = Annotated[int, BeforeValidator(parse_bytes)]
 Rate = Annotated[float, BeforeValidator(parse_rate)]
+Day = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+Clock = str | int
 
-# Test names become the `test` label on every series, so they are short, stable and boring.
+# Test names and peer ids become label values on every series: short, stable and boring.
 _NAME = re.compile(r"^[a-z0-9][a-z0-9._-]{0,62}$")
 # Hostnames that may reach a command line (iperf3 -c). No leading dash, no spaces, no shell.
 _HOST = re.compile(r"^(?!-)[A-Za-z0-9.-]{1,253}$")
 _CCA = re.compile(r"^[a-z0-9_]{1,32}$")
+_ENV = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 # Cloudflare answers 403 to `__down?bytes=` of 100 MB and more (observed 2026-10-01).
 CLOUDFLARE_MAX_DOWNLOAD_CHUNK = 99_999_999
+# The automatic warm-up ends after 5 s at the latest.
+AUTO_WARMUP_CAP = 5.0
 
 
 class ConfigError(ValueError):
@@ -56,6 +65,23 @@ class ConfigError(ValueError):
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+def _check_name(value: Any, what: str = "test names") -> str:
+    if isinstance(value, bool):
+        raise ValueError("quote the name: YAML reads on, off, yes and no as true or false")
+    if not isinstance(value, str) or not _NAME.match(value):
+        raise ValueError(
+            f"{what} are lower-case letters, digits, '.', '_' and '-', up to 63 characters, "
+            "starting with a letter or digit"
+        )
+    return value
+
+
+def _check_env(value: str) -> str:
+    if not _ENV.match(value):
+        raise ValueError(f"{value!r} is not an environment variable name")
+    return value
 
 
 class RandomScheduleConfig(_Strict):
@@ -147,18 +173,26 @@ class Iperf3Options(_Strict):
         return value
 
 
+class BuiltinOptions(_Strict):
+    """The built-in raw-TCP engine, east/west only: it needs a bandwidth-exporter responder."""
+
+    latency_samples: int = Field(default=10, ge=3, le=100)
+    loaded_latency_interval: Duration = 0.4
+    # Bytes per test the agent asks for; the responder's own cap still applies. 20 GB covers
+    # a 15 s direction at about 10 Gbit/s.
+    max_bytes: Size = 20_000_000_000
+
+
 BACKEND_OPTIONS: dict[str, type[_Strict]] = {
     "cloudflare": CloudflareOptions,
     "iperf3": Iperf3Options,
+    "builtin": BuiltinOptions,
 }
 
 
-class NorthSouthTest(_Strict):
+class _TestCommon(_Strict):
     name: str
-    # `engine` is accepted as a synonym: the design document uses both words.
-    backend: Literal["cloudflare", "iperf3"]
     enabled: bool = True
-    target: str | None = None
     schedule: ScheduleConfig | None = None
     warmup: Literal["auto"] | Duration | None = None
     duration: Duration | None = None
@@ -175,6 +209,7 @@ class NorthSouthTest(_Strict):
     @model_validator(mode="before")
     @classmethod
     def _engine_alias(cls, data: Any) -> Any:
+        # `engine` is accepted as a synonym: the design document uses both words.
         if isinstance(data, dict) and "engine" in data:
             if "backend" in data:
                 raise ValueError("set `backend` or `engine`, not both")
@@ -184,20 +219,8 @@ class NorthSouthTest(_Strict):
 
     @field_validator("name", mode="before")
     @classmethod
-    def _yaml_boolean_name(cls, value: Any) -> Any:
-        if isinstance(value, bool):
-            raise ValueError("quote the name: YAML reads on, off, yes and no as true or false")
-        return value
-
-    @field_validator("name")
-    @classmethod
-    def _name(cls, value: str) -> str:
-        if not _NAME.match(value):
-            raise ValueError(
-                "test names are lower-case letters, digits, '.', '_' and '-', "
-                "up to 63 characters, starting with a letter or digit"
-            )
-        return value
+    def _name(cls, value: Any) -> str:
+        return _check_name(value)
 
     @field_validator("bind_address")
     @classmethod
@@ -213,6 +236,11 @@ class NorthSouthTest(_Strict):
             raise ValueError("congestion_control must be a kernel algorithm name, e.g. bbr")
         return value
 
+
+class NorthSouthTest(_TestCommon):
+    backend: Literal["cloudflare", "iperf3"]
+    target: str | None = None
+
     @model_validator(mode="after")
     def _backend_rules(self) -> NorthSouthTest:
         BACKEND_OPTIONS[self.backend].model_validate(self.options)
@@ -225,6 +253,168 @@ class NorthSouthTest(_Strict):
         return self
 
 
+class StaticPeer(_Strict):
+    """A peer by name and the address of its responder's control API."""
+
+    id: str
+    address: str
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _id(cls, value: Any) -> str:
+        return _check_name(value, "peer ids")
+
+    @field_validator("address")
+    @classmethod
+    def _address(cls, value: str) -> str:
+        host, port = parse_host_port(value, default_port=DEFAULT_CONTROL_PORT)
+        return format_host_port(host, port)
+
+
+class DnsDiscovery(_Strict):
+    """Every address a DNS name resolves to is a peer: a headless Service returns one record
+    per ready pod. Each peer's id comes from its responder, never from the address."""
+
+    dns: str
+    port: int = Field(default=DEFAULT_CONTROL_PORT, ge=1, le=65535)
+    refresh: Duration = 300.0
+
+    @field_validator("dns")
+    @classmethod
+    def _dns(cls, value: str) -> str:
+        if not _HOST.match(value):
+            raise ValueError(f"bad DNS name {value!r}")
+        return value
+
+
+class TopologyConfig(_Strict):
+    # Each agent tests this many peers, picked by rendezvous hashing so the pairing survives
+    # restarts. Unset means every peer (a full mesh: N x (N-1) pairs).
+    random_peers: int | None = Field(default=3, ge=1)
+
+
+class PeerAuthConfig(_Strict):
+    # The key this agent signs its requests with.
+    key_env: str = "BWEXP_PEER_KEY"
+
+    @field_validator("key_env")
+    @classmethod
+    def _key_env(cls, value: str) -> str:
+        return _check_env(value)
+
+
+class EastWestTest(_TestCommon):
+    backend: Literal["builtin", "iperf3"] = "builtin"
+    peers: tuple[StaticPeer, ...] = ()
+    discovery: DnsDiscovery | None = None
+    topology: TopologyConfig = Field(default_factory=TopologyConfig)
+    max_peers: int = Field(default=10, ge=1, le=1000)
+    auth: PeerAuthConfig = Field(default_factory=PeerAuthConfig)
+
+    @model_validator(mode="after")
+    def _peers(self) -> EastWestTest:
+        BACKEND_OPTIONS[self.backend].model_validate(self.options)
+        if bool(self.peers) == (self.discovery is not None):
+            raise ValueError("east/west tests need exactly one of `peers` or `discovery`")
+        ids = [peer.id for peer in self.peers]
+        if len(ids) != len(set(ids)):
+            raise ValueError("peer ids must be unique within a test")
+        return self
+
+
+class DataPorts(_Strict):
+    first: int = 5201
+    last: int = 5210
+
+    @model_validator(mode="after")
+    def _range(self) -> DataPorts:
+        # Unprivileged ports only: the container drops every capability.
+        if not 1024 <= self.first <= self.last <= 65535:
+            raise ValueError("data_ports must be a range within 1024-65535")
+        return self
+
+
+class ResponderConfig(_Strict):
+    enabled: bool = False
+    listen: str = f"0.0.0.0:{DEFAULT_CONTROL_PORT}"
+    data_ports: DataPorts = Field(default_factory=DataPorts)
+    max_concurrent_tests: int = Field(default=1, ge=1, le=16)
+    # Longest slot a peer may hold, warm-up included.
+    max_duration: Duration = 30.0
+    max_bytes_per_test: Size = 20_000_000_000
+    # Peer ids allowed to test against this responder; empty allows any peer with a valid key.
+    allowed_peers: tuple[str, ...] = ()
+    # Either one key every peer uses, or a JSON object of peer id to key.
+    keys_env: str = "BWEXP_PEER_KEYS"
+    respect_business_hours: bool = True
+    engines: tuple[Literal["builtin", "iperf3"], ...] = ("builtin", "iperf3")
+
+    @field_validator("listen")
+    @classmethod
+    def _listen(cls, value: str) -> str:
+        parse_host_port(value, default_port=None)
+        return value
+
+    @field_validator("keys_env")
+    @classmethod
+    def _keys_env(cls, value: str) -> str:
+        return _check_env(value)
+
+    @field_validator("allowed_peers", mode="before")
+    @classmethod
+    def _allowed(cls, value: Any) -> Any:
+        for item in value or ():
+            _check_name(item, "peer ids")
+        return value
+
+
+class BusinessHoursWindowConfig(_Strict):
+    days: tuple[Day, ...] = ("mon", "tue", "wed", "thu", "fri")
+    start: Clock
+    end: Clock
+
+    def build(self) -> Window:
+        return Window(
+            days=frozenset(DAYS.index(day) for day in self.days),
+            start=parse_clock(self.start),
+            end=parse_clock(self.end),
+        )
+
+
+class BusinessHoursConfig(_Strict):
+    """Hours in which no throughput test starts. `days`/`start`/`end` describe one window;
+    `windows` lists more."""
+
+    timezone: str = "UTC"
+    days: tuple[Day, ...] | None = None
+    start: Clock | None = None
+    end: Clock | None = None
+    windows: tuple[BusinessHoursWindowConfig, ...] = ()
+
+    @model_validator(mode="after")
+    def _check(self) -> BusinessHoursConfig:
+        if (self.start is None) != (self.end is None):
+            raise ValueError("business hours need both `start` and `end`")
+        if self.days is not None and self.start is None:
+            raise ValueError("business hours `days` need a `start` and an `end`")
+        self.build()
+        return self
+
+    def all_windows(self) -> tuple[BusinessHoursWindowConfig, ...]:
+        windows = self.windows
+        if self.start is not None and self.end is not None:
+            first = BusinessHoursWindowConfig(
+                days=self.days or ("mon", "tue", "wed", "thu", "fri"),
+                start=self.start,
+                end=self.end,
+            )
+            windows = (first, *windows)
+        return windows
+
+    def build(self) -> BusinessHours:
+        return BusinessHours([w.build() for w in self.all_windows()], self.timezone)
+
+
 class TriggerConfig(_Strict):
     enabled: bool = False
     token_env: str = "BWEXP_TRIGGER_TOKEN"  # noqa: S105 - the variable's name, not a secret
@@ -232,9 +422,10 @@ class TriggerConfig(_Strict):
 
 
 class BudgetConfig(_Strict):
+    # Past the limit, runs are skipped until the period resets. Continuous latency is a
+    # blackbox_exporter job, so there is no latency-only fallback.
     limit: Size | None = None
     reset_day: int = Field(default=1, ge=1, le=28)
-    on_exhausted: Literal["latency_only", "skip"] = "latency_only"
 
 
 class _YamlPath:
@@ -255,15 +446,25 @@ class Settings(BaseSettings):
     state_dir: Path = Path("/var/lib/bandwidth-exporter")
     log_level: Literal["debug", "info", "warning", "error"] = "info"
     log_format: Literal["text", "json"] = "text"
+    # A test due at start-up waits this long, plus a random share of `startup_jitter` so the
+    # pods of a DaemonSet that restart together do not all test at once.
     startup_delay: Duration = 30.0
+    startup_jitter: Duration = 0.0
     # Recorded on bandwidth_test_info so results from pod and host networking stay apart.
     network_mode: str = ""
+    # This instance's name among its peers; the host name when unset. In a DaemonSet the chart
+    # sets it to the node name.
+    peer_id: str = ""
+    # With several instances (a DaemonSet), only the one with this peer id runs the
+    # north/south tests: one tester per egress.
+    north_south_on: str = ""
+    business_hours: BusinessHoursConfig = Field(default_factory=BusinessHoursConfig)
     trigger: TriggerConfig = Field(default_factory=TriggerConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     defaults: Defaults = Field(default_factory=Defaults)
     north_south: tuple[NorthSouthTest, ...] = ()
-    east_west: tuple[Any, ...] = ()
-    responder: dict[str, Any] | None = None
+    east_west: tuple[EastWestTest, ...] = ()
+    responder: ResponderConfig = Field(default_factory=ResponderConfig)
 
     @classmethod
     def settings_customise_sources(
@@ -285,34 +486,32 @@ class Settings(BaseSettings):
         parse_host_port(value, default_port=None)
         return value
 
-    @field_validator("east_west")
+    @field_validator("peer_id", "north_south_on", mode="before")
     @classmethod
-    def _east_west(cls, value: tuple[Any, ...]) -> tuple[Any, ...]:
+    def _peer_id(cls, value: Any) -> Any:
         if value:
-            raise ValueError(
-                "east/west tests arrive with the responder role (roadmap phase 1); "
-                "this version runs north/south tests only"
-            )
-        return value
-
-    @field_validator("responder")
-    @classmethod
-    def _responder(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
-        if value and value.get("enabled"):
-            raise ValueError("the responder role is not in this version (roadmap phase 1)")
+            _check_name(str(value).lower(), "peer ids")
+            return str(value).lower()
         return value
 
     @model_validator(mode="after")
-    def _unique_names(self) -> Settings:
+    def _consistency(self) -> Settings:
         seen: set[str] = set()
-        for test in self.north_south:
+        for test in (*self.north_south, *self.east_west):
             if test.name in seen:
                 raise ValueError(f"duplicate test name {test.name!r}")
             seen.add(test.name)
-        # Resolve every test now so that combinations (warm-up against max_duration) fail
-        # at load time.
+        hours = self.business_hours.build()
+        # Resolve every test now so that combinations (warm-up against max_duration, a cron
+        # schedule that only ever fires in business hours) fail at load time.
         for test in self.north_south:
-            resolve_test(test, self.defaults)
+            _check_against_hours(resolve_test(test, self.defaults), hours)
+        for test in self.east_west:
+            _check_against_hours(
+                resolve_east_west(test, self.defaults, "x").pair("y", "y:1"), hours
+            )
+        if self.responder.enabled and self.responder.max_duration < AUTO_WARMUP_CAP + 3:
+            raise ValueError("responder.max_duration must leave room for a warm-up and 3 s")
         return self
 
     @property
@@ -322,6 +521,31 @@ class Settings(BaseSettings):
     @property
     def listen_port(self) -> int:
         return parse_host_port(self.listen, default_port=None)[1]
+
+    @property
+    def own_peer_id(self) -> str:
+        if self.peer_id:
+            return self.peer_id
+        host = socket.gethostname().split(".")[0].lower()
+        cleaned = re.sub(r"[^a-z0-9._-]", "-", host).strip("-._") or "localhost"
+        return cleaned[:63]
+
+    @property
+    def hours(self) -> BusinessHours:
+        return self.business_hours.build()
+
+    @property
+    def runs_north_south(self) -> bool:
+        return not self.north_south_on or self.north_south_on == self.own_peer_id
+
+
+def _check_against_hours(spec: TestSpec, hours: BusinessHours) -> None:
+    schedule = spec.schedule
+    if not hours.enabled or not isinstance(schedule, CronSchedule):
+        return
+    rng = random.Random(0)  # noqa: S311 - a reproducible check, not cryptography
+    if next_run(schedule, 1_800_000_000.0, rng, hours, limit=2000) is None:
+        raise ConfigError(f"{spec.name}: every run of its cron schedule falls in business hours")
 
 
 def parse_host_port(value: str, default_port: int | None) -> tuple[str, int]:
@@ -361,9 +585,14 @@ def parse_host_port(value: str, default_port: int | None) -> tuple[str, int]:
     return host, port
 
 
+def format_host_port(host: str, port: int) -> str:
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+
+
 @dataclass(frozen=True)
 class TestSpec:
-    """A test with every default applied: what the scheduler and the worker act on."""
+    """A test with every default applied: what the scheduler and the worker act on. An
+    east/west test becomes one TestSpec per peer."""
 
     name: str
     kind: str
@@ -383,6 +612,9 @@ class TestSpec:
     bind_address: str | None
     congestion_control: str | None
     options: dict[str, Any] = field(default_factory=dict)
+    # East/west only: who we are, and the env var with the key we sign requests with.
+    self_id: str = ""
+    key_env: str = ""
 
     # Never collected by pytest even though the name starts with "Test".
     __test__: ClassVar[bool] = False
@@ -391,14 +623,21 @@ class TestSpec:
     def labels(self) -> tuple[str, str, str]:
         return (self.name, self.kind, self.peer)
 
+    @property
+    def key(self) -> str:
+        """Unique per series: the test, plus the peer for east/west."""
+        return f"{self.name}@{self.peer}" if self.peer else self.name
+
     def hard_timeout(self) -> float:
         """Wall-clock bound for one run, after which the worker process is killed."""
         per_direction = self.max_duration + 30.0
         return 60.0 + per_direction * len(self.directions)
 
-    def worker_spec(self, *, latency_only: bool = False) -> dict[str, Any]:
+    def worker_spec(self) -> dict[str, Any]:
         return {
             "name": self.name,
+            "kind": self.kind,
+            "peer": self.peer,
             "backend": self.backend,
             "target": self.target,
             "warmup": self.warmup,
@@ -410,19 +649,18 @@ class TestSpec:
             "ip_family": self.ip_family,
             "bind_address": self.bind_address,
             "congestion_control": self.congestion_control,
-            "latency_only": latency_only,
             "options": self.options,
+            "self_id": self.self_id,
+            "key_env": self.key_env,
         }
 
 
-def resolve_test(test: NorthSouthTest, defaults: Defaults) -> TestSpec:
+def _resolved_common(test: _TestCommon, defaults: Defaults, backend: str) -> dict[str, Any]:
     warmup = test.warmup if test.warmup is not None else defaults.warmup
     duration = test.duration if test.duration is not None else defaults.duration
     max_duration = test.max_duration if test.max_duration is not None else defaults.max_duration
-    options_model = BACKEND_OPTIONS[test.backend].model_validate(test.options)
     warmup_seconds = None if warmup == "auto" else float(warmup)
-    # The automatic warm-up ends at the latest after 5 s; leave at least 3 s to measure.
-    warmup_cap = 5.0 if warmup_seconds is None else warmup_seconds
+    warmup_cap = AUTO_WARMUP_CAP if warmup_seconds is None else warmup_seconds
     if duration < 1:
         raise ConfigError(f"{test.name}: duration must be at least 1s")
     if max_duration < warmup_cap + min(duration, 3.0):
@@ -430,31 +668,69 @@ def resolve_test(test: NorthSouthTest, defaults: Defaults) -> TestSpec:
             f"{test.name}: max_duration ({max_duration:g}s) leaves too little time to measure "
             f"after a warm-up of up to {warmup_cap:g}s"
         )
-    if isinstance(options_model, CloudflareOptions):
-        target = options_model.base_url.split("://", 1)[1].split("/", 1)[0]
-    else:
-        host, port = parse_host_port(test.target or "", default_port=5201)
-        target = f"{host}:{port}" if ":" not in host else f"[{host}]:{port}"
     plan = test.plan or PlanConfig()
-    return TestSpec(
-        name=test.name,
-        kind="north_south",
+    return {
+        "name": test.name,
+        "backend": backend,
+        "schedule": (test.schedule or defaults.schedule).build(),
+        "warmup": warmup_seconds,
+        "duration": duration,
+        "max_duration": max_duration,
+        "streams": test.streams if test.streams is not None else defaults.streams,
+        "directions": test.directions if test.directions is not None else defaults.directions,
+        "early_stop": test.early_stop if test.early_stop is not None else defaults.early_stop,
+        "plan_download": plan.download,
+        "plan_upload": plan.upload,
+        "ip_family": test.ip_family,
+        "bind_address": test.bind_address,
+        "congestion_control": test.congestion_control,
+        "options": BACKEND_OPTIONS[backend].model_validate(test.options).model_dump(),
+    }
+
+
+def resolve_test(test: NorthSouthTest, defaults: Defaults) -> TestSpec:
+    common = _resolved_common(test, defaults, test.backend)
+    if test.backend == "cloudflare":
+        target = common["options"]["base_url"].split("://", 1)[1].split("/", 1)[0]
+    else:
+        target = format_host_port(*parse_host_port(test.target or "", default_port=5201))
+    return TestSpec(kind="north_south", peer="", target=target, **common)
+
+
+@dataclass(frozen=True)
+class EastWestPlan:
+    """An east/west test before its peers are known: `pair` makes one TestSpec per peer."""
+
+    template: TestSpec
+    peers: tuple[StaticPeer, ...]
+    discovery: DnsDiscovery | None
+    random_peers: int | None
+    max_peers: int
+
+    @property
+    def name(self) -> str:
+        return self.template.name
+
+    def pair(self, peer_id: str, address: str) -> TestSpec:
+        return replace(self.template, peer=peer_id, target=address)
+
+
+def resolve_east_west(test: EastWestTest, defaults: Defaults, self_id: str) -> EastWestPlan:
+    common = _resolved_common(test, defaults, test.backend)
+    template = TestSpec(
+        kind="east_west",
         peer="",
-        backend=test.backend,
-        target=target,
-        schedule=(test.schedule or defaults.schedule).build(),
-        warmup=warmup_seconds,
-        duration=duration,
-        max_duration=max_duration,
-        streams=test.streams if test.streams is not None else defaults.streams,
-        directions=test.directions if test.directions is not None else defaults.directions,
-        early_stop=test.early_stop if test.early_stop is not None else defaults.early_stop,
-        plan_download=plan.download,
-        plan_upload=plan.upload,
-        ip_family=test.ip_family,
-        bind_address=test.bind_address,
-        congestion_control=test.congestion_control,
-        options=options_model.model_dump(),
+        target="",
+        self_id=self_id,
+        key_env=test.auth.key_env,
+        **common,
+    )
+    return EastWestPlan(
+        template=template,
+        peers=test.peers,
+        discovery=test.discovery,
+        random_peers=test.topology.random_peers,
+        max_peers=test.max_peers,
     )
 
 
@@ -473,7 +749,15 @@ def load_settings(path: Path | None) -> Settings:
 
 
 def enabled_tests(settings: Settings) -> list[TestSpec]:
+    """North/south tests this instance runs."""
+    if not settings.runs_north_south:
+        return []
     return [resolve_test(t, settings.defaults) for t in settings.north_south if t.enabled]
+
+
+def east_west_plans(settings: Settings) -> list[EastWestPlan]:
+    me = settings.own_peer_id
+    return [resolve_east_west(t, settings.defaults, me) for t in settings.east_west if t.enabled]
 
 
 def _format_validation_error(exc: ValidationError) -> str:

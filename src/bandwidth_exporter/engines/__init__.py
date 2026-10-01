@@ -17,8 +17,8 @@ def get_engine(backend: str) -> Callable[[dict[str, Any]], RunResult]:
         from .iperf3 import run
 
         return run
+    if backend == "builtin":
+        from .builtin import run
+
+        return run
     raise ValueError(f"unknown backend {backend!r}")
-
-
-def supports_latency_only(backend: str) -> bool:
-    return backend == "cloudflare"

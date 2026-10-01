@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from html import escape
@@ -19,6 +20,7 @@ from prometheus_client import CollectorRegistry, GCCollector, PlatformCollector,
 from prometheus_client.exposition import choose_encoder
 
 from . import __version__
+from .businesshours import BusinessHours
 from .collector import BandwidthCollector
 from .config import Settings
 from .scheduler import Scheduler
@@ -69,7 +71,7 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
         rows = "".join(
-            f"<li><a href='/probe?target={escape(s.spec.name)}'>{escape(s.spec.name)}</a> "
+            f"<li><a href='/probe?target={escape(s.spec.key)}'>{escape(s.spec.key)}</a> "
             f"({escape(s.spec.backend)}, {escape(s.spec.target)})</li>"
             for s in scheduler.snapshot.tests
         )
@@ -98,7 +100,8 @@ def create_app(
     async def probe(request: Request, target: str) -> Response:
         """One test's cached results, for Prometheus Operator `Probe` resources. Never runs a
         test."""
-        if scheduler.snapshot.get(target) is None:
+        snap = scheduler.snapshot
+        if snap.get(target) is None and not snap.named(target):
             return JSONResponse({"error": f"unknown test {target!r}"}, status_code=404)
         single = CollectorRegistry(auto_describe=False)
         single.register(collector_factory(only=target))
@@ -110,6 +113,7 @@ def create_app(
         return {
             "in_progress": snap.in_progress,
             "queue_length": snap.queue_length,
+            "business_hours": _hours_view(scheduler.hours),
             "budget": {
                 "limit_bytes": snap.budget_limit_bytes,
                 "transferred_bytes": snap.budget_transferred_bytes,
@@ -130,18 +134,34 @@ def create_app(
             )
         outcome, wait = scheduler.trigger(name)
         if outcome == "unknown":
-            return JSONResponse({"error": f"unknown test {name!r}"}, status_code=404)
+            hint = " (east/west tests: name@peer)" if scheduler.snapshot.named(name) else ""
+            return JSONResponse({"error": f"unknown test {name!r}{hint}"}, status_code=404)
         if outcome == "conflict":
             return JSONResponse({"error": "already queued or running"}, status_code=409)
-        if outcome == "rate_limited":
+        if outcome in ("rate_limited", "business_hours"):
+            message = (
+                "inside business hours"
+                if outcome == "business_hours"
+                else "rate limited or over the data budget"
+            )
             return JSONResponse(
-                {"error": "rate limited or over the data budget"},
+                {"error": message},
                 status_code=429,
                 headers={"Retry-After": str(max(1, int(wait + 0.999)))},
             )
         return JSONResponse({"status": "queued", "test": name}, status_code=202)
 
     return app
+
+
+def _hours_view(hours: BusinessHours) -> dict[str, Any]:
+    now = time.time()
+    active = hours.is_blocked(now)
+    return {
+        "configured": hours.describe(),
+        "active": active,
+        "ends": hours.blocked_until(now) if active else None,
+    }
 
 
 def _authorised(header: str, token: str) -> bool:
@@ -166,6 +186,8 @@ def _test_view(state: Any) -> dict[str, Any]:
 
     return {
         "name": state.spec.name,
+        "key": state.spec.key,
+        "peer": state.spec.peer or None,
         "kind": state.spec.kind,
         "backend": state.spec.backend,
         "target": state.spec.target,

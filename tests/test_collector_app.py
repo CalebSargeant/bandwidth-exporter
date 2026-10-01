@@ -146,7 +146,7 @@ def test_only_one_test():
 
 
 class NeverRuns:
-    async def run(self, spec, *, latency_only=False):  # pragma: no cover - must not be called
+    async def run(self, spec):  # pragma: no cover - must not be called
         raise AssertionError("a request started a test")
 
 

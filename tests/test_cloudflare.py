@@ -50,17 +50,6 @@ def test_upload_is_counted_at_the_receiver(edge):
     assert result.upload.bytes <= state.uploaded + 64 * 1024 * 4
 
 
-def test_latency_only(edge):
-    state, url = edge
-    result = cloudflare.run(cloudflare_spec(url, latency_only=True))
-    assert result.status == "skipped"
-    assert result.reason == "budget"
-    assert result.latency_only is True
-    assert result.idle_latency_seconds is not None
-    assert result.download is None
-    assert not [r for r in state.requests if "bytes=0" not in r[1]]
-
-
 def test_rate_limited_is_a_skip(edge):
     state, url = edge
     state.meta_status = 429

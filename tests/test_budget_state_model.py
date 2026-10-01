@@ -35,13 +35,11 @@ def test_budget_decisions():
     now = ts(2026, 10, 10)
     unlimited = Budget(limit=None)
     assert unlimited.decide(10**15, now) == "run"
-    budget = Budget(limit=1000, on_exhausted="latency_only")
+    budget = Budget(limit=1000)
     assert budget.decide(None, now) == "run"
     assert budget.decide(800, now) == "run"
-    assert budget.decide(900, now) == "latency_only"  # 900 x 1.2 margin > 1000
+    assert budget.decide(900, now) == "skip"  # 900 x 1.2 margin > 1000
     budget.charge(1000, now)
-    assert budget.decide(None, now) == "latency_only"
-    budget.on_exhausted = "skip"
     assert budget.decide(None, now) == "skip"
 
 
@@ -111,18 +109,29 @@ def test_state_keeps_the_last_success_through_a_failure():
     assert state.last_success_time == 110.0
 
 
-def test_skips_are_not_attempts_but_keep_latency():
+def test_skips_are_not_attempts():
     spec = make_spec()
-    skipped = RunResult.skipped(
-        "budget", "latency only", latency_only=True, idle_latency_seconds=0.02, received_bytes=3
-    )
+    skipped = RunResult.skipped("budget", "over budget", received_bytes=3)
     state = TestState(spec=spec).with_result(skipped, 10.0, 11.0)
     assert state.tests_total == 0
     assert state.skipped["budget"] == 1
     assert state.last_attempt_time == 0.0
-    assert state.idle_latency_seconds == 0.02
     assert state.received_bytes_total == 3
     assert state.last_test_success is None
+
+
+def test_latency_only_counts_from_a_successful_run():
+    spec = make_spec()
+    busy = RunResult.skipped("busy", "peer busy", idle_latency_seconds=0.02)
+    state = TestState(spec=spec).with_result(busy, 10.0, 11.0)
+    assert state.idle_latency_seconds is None
+    assert state.consecutive_busy == 1
+    state = state.with_result(busy, 12.0, 13.0)
+    assert state.consecutive_busy == 2
+    ok = RunResult(status="success", idle_latency_seconds=0.01, jitter_seconds=0.001)
+    state = state.with_result(ok, 14.0, 15.0)
+    assert state.idle_latency_seconds == 0.01
+    assert state.consecutive_busy == 0
 
 
 # --- state file -----------------------------------------------------------------------
