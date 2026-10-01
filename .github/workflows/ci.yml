@@ -138,4 +138,6 @@ jobs:
             curl -fsS localhost:10056/readyz >/dev/null && break
             sleep 1
           done
-          curl -fsS localhost:10056/metrics | grep -q '^bandwidth_build_info'
+          # Not `curl | grep -q`: grep exits at the first match and pipefail fails curl.
+          curl -fsS localhost:10056/metrics > "$RUNNER_TEMP/metrics.txt"
+          grep -q '^bandwidth_build_info' "$RUNNER_TEMP/metrics.txt"
