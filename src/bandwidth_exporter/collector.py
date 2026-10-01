@@ -25,8 +25,10 @@ from . import __version__
 from .model import (
     FAILURE_REASONS,
     ON_DEMAND_RESULTS,
+    RESPONDER_REJECTIONS,
     SKIP_REASONS,
     DirectionResult,
+    ResponderStats,
     Snapshot,
     TestState,
 )
@@ -62,6 +64,8 @@ class BandwidthCollector(Collector):
         iperf3_version: str = "",
         cpu_quota_cores: float | None = None,
         only: str | None = None,
+        responder: Callable[[], ResponderStats | None] | None = None,
+        peer_id: str = "",
     ) -> None:
         self._snapshot = snapshot
         self._network_mode = network_mode
@@ -69,6 +73,8 @@ class BandwidthCollector(Collector):
         self._iperf3_version = iperf3_version
         self._cpu_quota = cpu_quota_cores
         self._only = only
+        self._responder = responder
+        self._peer_id = peer_id
 
     def describe(self) -> Iterable[Metric]:
         # Unchecked collector: families depend on the snapshot.
@@ -76,11 +82,14 @@ class BandwidthCollector(Collector):
 
     def collect(self) -> Iterator[Metric]:
         snap = self._snapshot()
-        states = [s for s in snap.tests if self._only is None or s.spec.name == self._only]
+        states = [
+            s for s in snap.tests if self._only is None or self._only in (s.spec.name, s.spec.key)
+        ]
         yield from self._results(states)
         yield from self._bookkeeping(states)
         if self._only is None:
             yield from self._process(snap)
+            yield from self._responder_metrics()
 
     # --- per-test results --------------------------------------------------------------
 
@@ -297,3 +306,40 @@ class BandwidthCollector(Collector):
             },
         )
         yield build
+
+        if self._peer_id:
+            identity = InfoMetricFamily(
+                "bandwidth_peer",
+                "This instance's peer id: the `peer` value other instances use for it.",
+            )
+            identity.add_metric([], {"peer_id": self._peer_id})
+            yield identity
+
+    def _responder_metrics(self) -> Iterator[Metric]:
+        stats = self._responder() if self._responder is not None else None
+        if stats is None:
+            return
+        sessions = CounterMetricFamily(
+            "bandwidth_responder_sessions", "Slots granted to peers for east/west tests."
+        )
+        sessions.add_metric([], stats.sessions_total)
+        rejected = CounterMetricFamily(
+            "bandwidth_responder_rejected_sessions",
+            "Peer requests refused, by reason (auth, replay, busy, business_hours, ...).",
+            labels=["reason"],
+        )
+        for reason in RESPONDER_REJECTIONS:
+            rejected.add_metric([reason], stats.rejected.get(reason, 0))
+        sent = CounterMetricFamily(
+            "bandwidth_responder_sent_bytes",
+            "Bytes this responder sent to peers (built-in engine).",
+        )
+        sent.add_metric([], stats.sent_bytes_total)
+        received = CounterMetricFamily(
+            "bandwidth_responder_received_bytes",
+            "Bytes this responder received from peers (built-in engine).",
+        )
+        received.add_metric([], stats.received_bytes_total)
+        busy = _gauge("bandwidth_responder_busy", "1 while a peer holds a slot here.", labels=[])
+        busy.add_metric([], 1.0 if stats.active_slots else 0.0)
+        yield from (sessions, rejected, sent, received, busy)

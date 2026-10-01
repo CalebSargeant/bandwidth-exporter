@@ -141,6 +141,14 @@ class PhaseController:
             return False
         return statistics.pstdev(recent) <= EARLY_STOP_TOLERANCE * current
 
+    def force_finish(self, now: float, total: int) -> None:
+        """End early because the streams ended (the far end hit its byte or time cap). The
+        result stands only if the warm-up was over and at least a second was measured."""
+        if self.window is not None or self.warmup_end is None:
+            return
+        if now - self.warmup_end[0] >= 1.0:
+            self._finish(now, total, "streams_ended")
+
     def _finish(self, now: float, total: int, reason: str) -> bool:
         start, start_bytes = self.warmup_end or (now, total)
         self.window = Window(start, start_bytes, now, total)

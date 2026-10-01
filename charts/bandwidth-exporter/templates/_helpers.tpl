@@ -60,5 +60,41 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- if not (hasKey $config "network_mode") }}
 {{- $_ := set $config "network_mode" (ternary "host" "pod" .Values.hostNetwork) }}
 {{- end }}
+{{- if .Values.northSouthOn }}
+{{- $_ := set $config "north_south_on" .Values.northSouthOn }}
+{{- end }}
+{{- if and (eq .Values.workload.kind "DaemonSet") (not (hasKey $config "startup_jitter")) }}
+{{- /* Every pod of a DaemonSet restarts in one rollout; spread their first tests. */}}
+{{- $_ := set $config "startup_jitter" "30m" }}
+{{- end }}
+{{- if .Values.responder.enabled }}
+{{- $responder := deepCopy ($config.responder | default dict) }}
+{{- $_ := set $responder "enabled" true }}
+{{- $_ := set $responder "listen" (printf "%s:%d" $listen (int .Values.responder.port)) }}
+{{- $_ := set $responder "data_ports" (dict "first" (int .Values.responder.dataPorts.first) "last" (int .Values.responder.dataPorts.last)) }}
+{{- $_ := set $config "responder" $responder }}
+{{- end }}
+{{- if .Values.mesh.enabled }}
+{{- $mesh := dict "name" .Values.mesh.name "backend" .Values.mesh.backend "schedule" .Values.mesh.schedule }}
+{{- $_ := set $mesh "discovery" (dict "dns" (include "bandwidth-exporter.peersHost" .) "port" (int .Values.responder.port)) }}
+{{- $_ := set $mesh "topology" (dict "random_peers" (.Values.mesh.randomPeers | default nil)) }}
+{{- $mesh = merge $mesh (deepCopy (.Values.mesh.extra | default dict)) }}
+{{- $_ := set $config "east_west" (append ($config.east_west | default list) $mesh) }}
+{{- end }}
 {{- toYaml $config }}
+{{- end }}
+
+{{/* The headless Service that returns one address per ready pod: east/west discovery. */}}
+{{- define "bandwidth-exporter.peersName" -}}
+{{- printf "%s-peers" (include "bandwidth-exporter.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "bandwidth-exporter.peersHost" -}}
+{{- printf "%s.%s.svc.%s" (include "bandwidth-exporter.peersName" .) .Release.Namespace .Values.clusterDomain }}
+{{- end }}
+
+{{/* Whether this release does east/west work and so needs the peer keys. */}}
+{{- define "bandwidth-exporter.peerRole" -}}
+{{- $config := .Values.config | default dict }}
+{{- if or .Values.responder.enabled .Values.mesh.enabled $config.east_west }}true{{ end }}
 {{- end }}

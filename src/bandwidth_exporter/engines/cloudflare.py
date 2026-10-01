@@ -39,6 +39,7 @@ from .. import __version__, cgroup
 from ..model import DirectionResult, RunResult
 from . import tcpinfo
 from .latency import LoadedProber, Source, idle_probe, jitter, median
+from .meter import StreamMeter
 from .phases import PhaseController
 
 log = logging.getLogger(__name__)
@@ -93,50 +94,6 @@ def resolve(base_url: str, ip_family: str) -> Endpoint:
         address=(str(sockaddr[0]), int(sockaddr[1])),
         family=fam,
     )
-
-
-@dataclass
-class StreamMeter:
-    """One stream's byte counts. Upload bytes come from TCP_INFO when the kernel provides it."""
-
-    use_tcp_info: bool
-    app_bytes: int = 0
-    closed_acked: int = 0
-    retransmits: int = 0
-    sock: socket.socket | None = None
-    lock: threading.Lock = field(default_factory=threading.Lock)
-
-    def attach(self, sock: socket.socket) -> None:
-        with self.lock:
-            self.sock = sock
-
-    def detach(self, sock: socket.socket | None) -> None:
-        if sock is None:
-            return
-        with self.lock:
-            info = tcpinfo.read(sock) if self.use_tcp_info else None
-            if info is not None:
-                self.closed_acked += info.bytes_acked or 0
-                self.retransmits += info.total_retrans or 0
-            if self.sock is sock:
-                self.sock = None
-
-    def acked(self) -> int:
-        """Bytes the far end acknowledged so far, across this stream's connections."""
-        with self.lock:
-            live = 0
-            if self.sock is not None:
-                info = tcpinfo.read(self.sock)
-                live = (info.bytes_acked or 0) if info is not None else 0
-            return self.closed_acked + live
-
-    def abort(self) -> None:
-        """Unblock the stream thread. Calls the plain socket's shutdown, because
-        SSLSocket.shutdown would also drop the SSL object under the thread's feet."""
-        with self.lock:
-            if self.sock is not None:
-                with contextlib.suppress(OSError):
-                    socket.socket.shutdown(self.sock, socket.SHUT_RDWR)
 
 
 def _open(endpoint: Endpoint, source: Source) -> socket.socket:
@@ -552,17 +509,6 @@ def run(spec: dict[str, Any]) -> RunResult:
             log.info("%d of %d idle latency probes failed", failed, options["latency_samples"])
         common["idle_latency_seconds"] = median(samples)
         common["jitter_seconds"] = jitter(samples)
-        if spec.get("latency_only"):
-            return _finish(
-                RunResult.skipped(
-                    "budget",
-                    "data budget exhausted: measured latency only",
-                    latency_only=True,
-                    **common,
-                ),
-                started,
-                cpu_started,
-            )
 
         payload = memoryview(os.urandom(WRITE_SLICE))
         results: dict[str, DirectionResult] = {}

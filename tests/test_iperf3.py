@@ -157,3 +157,25 @@ def test_against_a_real_iperf3_server():
     finally:
         server.terminate()
         server.wait(timeout=5)
+
+
+def test_a_refused_connection_is_retried_once(monkeypatch):
+    document = (FIXTURES / "iperf3_upload.json").read_text()
+    refused = json.dumps({"error": "error - unable to connect to server: Connection refused"})
+    answers = [refused, document, refused, refused]
+    calls = []
+    monkeypatch.setattr(iperf3.shutil, "which", lambda name: "/usr/bin/iperf3")
+    monkeypatch.setattr(iperf3, "version", lambda path: "3.22")
+    monkeypatch.setattr(iperf3, "CONNECT_RETRY_DELAY", 0.0)
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout=answers.pop(0), stderr="")
+
+    monkeypatch.setattr(iperf3.subprocess, "run", fake_run)
+    result = iperf3.run(spec(directions=("download", "upload")))
+    # download: refused, then fine; upload: refused twice, so the run fails on connect.
+    assert len(calls) == 4
+    assert result.status == "failure"
+    assert result.reason == "connect"
+    assert result.received_bytes > 0

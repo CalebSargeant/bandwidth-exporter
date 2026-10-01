@@ -173,9 +173,7 @@ def cloudflare_spec(base_url: str, **overrides: Any) -> dict[str, Any]:
             "loaded_latency_interval": "100ms",
         },
     )
-    spec = resolve_test(test, Defaults()).worker_spec(
-        latency_only=overrides.pop("latency_only", False)
-    )
+    spec = resolve_test(test, Defaults()).worker_spec()
     spec.update(overrides)
     return spec
 

@@ -35,7 +35,7 @@ def test_full_example(tmp_path):
         tmp_path,
         """
         listen: "127.0.0.1:9999"
-        budget: {limit: 500GB, reset_day: 3, on_exhausted: skip}
+        budget: {limit: 500GB, reset_day: 3}
         defaults:
           schedule: {random: {mean: 4h, min: 1h, max: 12h}}
           streams: 4
@@ -126,8 +126,8 @@ def test_environment_overrides_the_file(tmp_path, monkeypatch):
             "north_south:\n  - {name: x, backend: iperf3, target: '-oops:5201'}\n",
             "bad host",
         ),
-        ("east_west:\n  - {name: mesh}\n", "phase 1"),
-        ("responder: {enabled: true}\n", "phase 1"),
+        ("east_west:\n  - {name: mesh}\n", "exactly one of `peers` or `discovery`"),
+        ("budget: {on_exhausted: latency_only}\n", "on_exhausted"),
         ("budget: {limit: 5Gb}\n", "bits"),
         ("listen: nowhere\n", "port"),
     ],
@@ -155,8 +155,8 @@ def test_fixed_warmup_and_hard_timeout():
     )
     assert spec.warmup == 2
     assert spec.hard_timeout() == 60 + 2 * (15 + 30)
-    worker = spec.worker_spec(latency_only=True)
-    assert worker["latency_only"] is True
+    worker = spec.worker_spec()
+    assert "latency_only" not in worker
     assert worker["options"]["base_url"] == "https://speed.cloudflare.com"
 
 

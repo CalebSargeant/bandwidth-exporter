@@ -18,4 +18,22 @@ spec:
       ports:
         - port: metrics
           protocol: TCP
+    {{- if .Values.responder.enabled }}
+    # Peers: the control API and the data ports. Each port is listed, rather than a range with
+    # endPort, which not every NetworkPolicy implementation enforces.
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "bandwidth-exporter.selectorLabels" . | nindent 14 }}
+        {{- with .Values.responder.allowFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      ports:
+        - port: control
+          protocol: TCP
+        {{- range $port := untilStep (int .Values.responder.dataPorts.first) (int (add1 .Values.responder.dataPorts.last)) 1 }}
+        - port: {{ $port }}
+          protocol: TCP
+        {{- end }}
+    {{- end }}
 {{- end }}

@@ -47,14 +47,18 @@ def load(path: Path) -> dict[str, Any]:
     return data
 
 
-def restore_test(spec: TestSpec, document: dict[str, Any]) -> TestState:
-    """A fresh state for `spec`, with persisted results if they belong to the same target."""
+def restore_test(
+    spec: TestSpec, document: dict[str, Any], *, match_target: bool = True
+) -> TestState:
+    """A fresh state for `spec`, with persisted results if they belong to the same target.
+    East/west pairs match on the peer id alone: a peer's address changes with its pod."""
     state = TestState(spec=spec)
-    entry = document.get("tests", {}).get(spec.name)
+    entry = document.get("tests", {}).get(spec.key)
     if not isinstance(entry, dict):
         return state
-    if entry.get("backend") != spec.backend or entry.get("target") != spec.target:
-        log.info("test %s now points elsewhere; not restoring its old results", spec.name)
+    moved = match_target and entry.get("target") != spec.target
+    if entry.get("backend") != spec.backend or moved:
+        log.info("test %s now points elsewhere; not restoring its old results", spec.key)
         return state
     try:
         return replace(
@@ -74,7 +78,7 @@ def restore_test(spec: TestSpec, document: dict[str, Any]) -> TestState:
             last_transferred_bytes=int(entry.get("last_transferred_bytes") or 0),
         )
     except (KeyError, TypeError, ValueError) as exc:
-        log.warning("ignoring malformed state for %s: %s", spec.name, exc)
+        log.warning("ignoring malformed state for %s: %s", spec.key, exc)
         return state
 
 
@@ -109,13 +113,17 @@ def dump_test(state: TestState) -> dict[str, Any]:
     }
 
 
-def save(path: Path, tests: list[TestState], budget: dict[str, Any]) -> None:
-    """Write atomically: a crash mid-write leaves the previous file intact."""
-    document = {
-        "version": STATE_VERSION,
-        "tests": {state.spec.name: dump_test(state) for state in tests},
-        "budget": budget,
-    }
+def save(
+    path: Path,
+    tests: list[TestState],
+    budget: dict[str, Any],
+    keep: dict[str, Any] | None = None,
+) -> None:
+    """Write atomically: a crash mid-write leaves the previous file intact. `keep` carries
+    entries for pairs that are not active right now."""
+    entries = dict(keep or {})
+    entries.update({state.spec.key: dump_test(state) for state in tests})
+    document = {"version": STATE_VERSION, "tests": entries, "budget": budget}
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".state-", dir=path.parent)
     try:

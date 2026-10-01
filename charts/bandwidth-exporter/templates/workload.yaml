@@ -1,6 +1,15 @@
 {{- $kind := .Values.workload.kind }}
-{{- if not (has $kind (list "Deployment" "StatefulSet")) }}
-{{- fail "workload.kind must be Deployment or StatefulSet" }}
+{{- if not (has $kind (list "Deployment" "StatefulSet" "DaemonSet")) }}
+{{- fail "workload.kind must be Deployment, StatefulSet or DaemonSet" }}
+{{- end }}
+{{- if and (eq $kind "DaemonSet") .Values.persistence.enabled }}
+{{- fail "persistence is for one pod; a DaemonSet keeps its state in an emptyDir per node" }}
+{{- end }}
+{{- if and .Values.mesh.enabled (not .Values.responder.enabled) }}
+{{- fail "mesh needs responder.enabled: every pod answers its peers' tests" }}
+{{- end }}
+{{- if and (include "bandwidth-exporter.peerRole" .) (not .Values.peerKeys.existingSecret) (not .Values.existingConfigMap) }}
+{{- fail "east/west tests and the responder need peerKeys.existingSecret (the peer key)" }}
 {{- end }}
 {{- $trigger := (.Values.config | default dict).trigger | default dict }}
 {{- if and $trigger.enabled (not .Values.trigger.existingSecret) (not .Values.existingConfigMap) }}
@@ -13,14 +22,21 @@ metadata:
   labels:
     {{- include "bandwidth-exporter.labels" . | nindent 4 }}
 spec:
+  revisionHistoryLimit: 3
+  {{- if eq $kind "DaemonSet" }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  {{- else }}
   # One tester per egress. Two would split the link and corrupt each other's results.
   replicas: 1
-  revisionHistoryLimit: 3
+  {{- end }}
   {{- if eq $kind "Deployment" }}
   strategy:
     # RollingUpdate's surge would run two testers during every rollout.
     type: Recreate
-  {{- else }}
+  {{- else if eq $kind "StatefulSet" }}
   serviceName: {{ include "bandwidth-exporter.fullname" . }}
   podManagementPolicy: OrderedReady
   {{- end }}
@@ -71,6 +87,27 @@ spec:
             # read-only.
             - name: TMPDIR
               value: /tmp
+            {{- if eq $kind "DaemonSet" }}
+            - name: BWEXP_PEER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- else }}
+            - name: BWEXP_PEER_ID
+              value: {{ .Values.peerId | default (include "bandwidth-exporter.fullname" .) | lower | quote }}
+            {{- end }}
+            {{- with .Values.peerKeys.existingSecret }}
+            - name: BWEXP_PEER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.peerKeys.keyKey }}
+            - name: BWEXP_PEER_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.peerKeys.keysKey | default $.Values.peerKeys.keyKey }}
+            {{- end }}
             {{- if .Values.trigger.existingSecret }}
             - name: BWEXP_TRIGGER_TOKEN
               valueFrom:
@@ -89,6 +126,11 @@ spec:
             - name: metrics
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+            {{- if .Values.responder.enabled }}
+            - name: control
+              containerPort: {{ .Values.responder.port }}
+              protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

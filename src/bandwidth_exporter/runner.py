@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 
 class Runner(Protocol):
-    async def run(self, spec: TestSpec, *, latency_only: bool = False) -> RunResult:
+    async def run(self, spec: TestSpec) -> RunResult:
         """Run one test and report what happened; never raises for a failed test."""
 
 
@@ -26,8 +26,8 @@ class SubprocessRunner:
         # Overrides the per-test deadline; tests use it, production does not.
         self.timeout = timeout
 
-    async def run(self, spec: TestSpec, *, latency_only: bool = False) -> RunResult:
-        payload = json.dumps(spec.worker_spec(latency_only=latency_only)).encode()
+    async def run(self, spec: TestSpec) -> RunResult:
+        payload = json.dumps(spec.worker_spec()).encode()
         timeout = self.timeout or spec.hard_timeout()
         try:
             proc = await asyncio.create_subprocess_exec(
