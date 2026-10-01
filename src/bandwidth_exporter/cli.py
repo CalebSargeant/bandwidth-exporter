@@ -114,7 +114,7 @@ def _peer_key(env: str) -> bytes | None:
         return None
 
 
-def check_secrets(settings: Settings) -> list[str]:
+def missing_peer_keys(settings: Settings) -> list[str]:
     """What is missing before this configuration can run."""
     # The messages name the setting, not the variable or anything read from it.
     problems = []
@@ -255,7 +255,7 @@ def serve(settings: Settings) -> int:
             settings.trigger.token_env,
         )
         return 2
-    problems = check_secrets(settings)
+    problems = missing_peer_keys(settings)
     if problems:
         for problem in problems:
             log.error("%s", problem)
@@ -353,7 +353,7 @@ def check_config(settings: Settings) -> int:
             f"responder on {responder.listen}, data ports {ports.first}-{ports.last}, "
             f"{responder.max_concurrent_tests} slot(s), engines {', '.join(responder.engines)}"
         )
-    for problem in check_secrets(settings):
+    for problem in missing_peer_keys(settings):
         print(f"! {problem}")
     return 0
 

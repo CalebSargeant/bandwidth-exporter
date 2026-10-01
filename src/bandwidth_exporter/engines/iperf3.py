@@ -42,6 +42,7 @@ CONNECT_MARKERS = (
     "network is unreachable",
 )
 TIMEOUT_MARKERS = ("timed out", "timeout")
+CONNECT_RETRY_DELAY = 1.0
 
 
 def version(binary: str = "iperf3") -> str:
@@ -229,6 +230,18 @@ def run(spec: dict[str, Any]) -> RunResult:
 
 
 def _run_direction(
+    spec: dict[str, Any], direction: str, path: str
+) -> RunResult | tuple[DirectionResult, int]:
+    """One iperf3 client run, retried once if refused: an iperf3 server re-opens its listener
+    after each test, and the second direction can arrive in that gap."""
+    outcome = _run_once(spec, direction, path)
+    if isinstance(outcome, RunResult) and outcome.reason == "connect":
+        time.sleep(CONNECT_RETRY_DELAY)
+        outcome = _run_once(spec, direction, path)
+    return outcome
+
+
+def _run_once(
     spec: dict[str, Any], direction: str, path: str
 ) -> RunResult | tuple[DirectionResult, int]:
     """One iperf3 client run: the result and the bytes moved, or a failed RunResult."""
